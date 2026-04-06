@@ -72,6 +72,13 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-your_openai_api_key_here}
       SECRET_KEY: ${SECRET_KEY:-your_secret_key_here}
       ENVIRONMENT: ${ENVIRONMENT:-development}
+    healthcheck:
+      # curl is installed in the backend Dockerfile
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
