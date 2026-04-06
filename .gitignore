@@ -136,3 +136,6 @@ jspm_packages/
 
 # Alembic
 alembic.ini
+
+# Prisma generated client (regenerated via `npm run db:generate`)
+frontend/src/generated/
