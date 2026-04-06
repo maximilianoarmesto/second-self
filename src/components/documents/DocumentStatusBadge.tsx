@@ -11,55 +11,55 @@ const STATUS_CONFIG: Record<
   string,
   {
     label: string;
-    variant: 'success' | 'warning' | 'destructive' | 'secondary';
+    variant: 'default' | 'outline';
     icon: React.ReactNode;
   }
 > = {
   COMPLETED: {
     label: 'Completed',
-    variant: 'success',
+    variant: 'default',
     icon: <CheckCircle2 className="w-3 h-3" />,
   },
   completed: {
     label: 'Completed',
-    variant: 'success',
+    variant: 'default',
     icon: <CheckCircle2 className="w-3 h-3" />,
   },
   PROCESSING: {
     label: 'Processing',
-    variant: 'warning',
+    variant: 'outline',
     icon: <Loader2 className="w-3 h-3 animate-spin" />,
   },
   processing: {
     label: 'Processing',
-    variant: 'warning',
+    variant: 'outline',
     icon: <Loader2 className="w-3 h-3 animate-spin" />,
   },
   PENDING: {
     label: 'Pending',
-    variant: 'secondary',
+    variant: 'outline',
     icon: <Clock className="w-3 h-3" />,
   },
   pending: {
     label: 'Pending',
-    variant: 'secondary',
+    variant: 'outline',
     icon: <Clock className="w-3 h-3" />,
   },
   FAILED: {
     label: 'Failed',
-    variant: 'destructive',
+    variant: 'default',
     icon: <XCircle className="w-3 h-3" />,
   },
   failed: {
     label: 'Failed',
-    variant: 'destructive',
+    variant: 'default',
     icon: <XCircle className="w-3 h-3" />,
   },
 };
 
 const DEFAULT_CONFIG = {
   label: 'Unknown',
-  variant: 'secondary' as const,
+  variant: 'outline' as const,
   icon: <Clock className="w-3 h-3" />,
 };
 
