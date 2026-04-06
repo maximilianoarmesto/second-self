@@ -1,65 +1,121 @@
 version: '3.8'
 
 services:
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-      - NEXT_PUBLIC_APP_NAME=Second Self
-    depends_on:
-      - backend
-    networks:
-      - app-network
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://secondself_user:secondself_pass@postgres:5432/secondself_db
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
-      - SECRET_KEY=${SECRET_KEY:-your_secret_key_here}
-      - ENVIRONMENT=development
-    depends_on:
-      - postgres
-    volumes:
-      - ./backend:/app
-    networks:
-      - app-network
-
+  # ──────────────────────────────────────────────
+  # PostgreSQL – primary data store
+  # ──────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
-      - POSTGRES_DB=secondself_db
-      - POSTGRES_USER=secondself_user
-      - POSTGRES_PASSWORD=secondself_pass
+      POSTGRES_DB: ${POSTGRES_DB:-secondself_db}
+      POSTGRES_USER: ${POSTGRES_USER:-secondself_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secondself_pass}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
+      # Named volume – data persists across container restarts/recreations
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d
+      # Initialisation SQL run once on first start (idempotent)
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-secondself_user} -d ${POSTGRES_DB:-secondself_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - app-network
 
+  # ──────────────────────────────────────────────
+  # Redis – broker & cache
+  # ──────────────────────────────────────────────
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - app-network
 
+  # ──────────────────────────────────────────────
+  # Backend – FastAPI / Uvicorn
+  # ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # asyncpg requires the postgresql+asyncpg:// scheme
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-secondself_user}:${POSTGRES_PASSWORD:-secondself_pass}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-secondself_db}
+      # Individual DB vars (used by config.py when DATABASE_URL is not set
+      # and by Alembic's env.py via Settings)
+      POSTGRES_SERVER: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-secondself_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secondself_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-secondself_db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      REDIS_URL: redis://redis:6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-your_openai_api_key_here}
+      SECRET_KEY: ${SECRET_KEY:-your_secret_key_here}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount only the application source directory so that pip-installed
+      # packages inside /app (installed during `docker build`) are NOT
+      # overwritten by the host bind-mount.
+      - ./backend/app:/app/app
+    networks:
+      - app-network
+
+  # ──────────────────────────────────────────────
+  # Frontend – Next.js
+  # ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Second Self}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app-network
+
+# ──────────────────────────────────────────────
+# Named volumes – data persists across restarts
+# ──────────────────────────────────────────────
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
 
+# ──────────────────────────────────────────────
+# Networks
+# ──────────────────────────────────────────────
 networks:
   app-network:
     driver: bridge
