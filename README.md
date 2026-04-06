@@ -42,6 +42,7 @@ second-self/
 │   │   ├── app/            # App Router pages and layouts
 │   │   ├── components/ui/  # Reusable UI components
 │   │   └── lib/            # API client and utilities
+│   ├── next.config.js      # Next.js config (standalone output + API proxy rewrites)
 │   ├── Dockerfile
 │   └── package.json
 ├── backend/                # FastAPI application (port 8000)
@@ -52,15 +53,20 @@ second-self/
 │   │   ├── models/         # SQLAlchemy ORM models
 │   │   ├── schemas/        # Pydantic request/response schemas
 │   │   └── services/       # Business logic (AI, chat, users)
-│   ├── alembic/            # Database migrations
+│   ├── alembic/            # Alembic migration environment
+│   ├── alembic.ini         # Alembic configuration (git-ignored — see note below)
 │   ├── Dockerfile
+│   ├── pyproject.toml      # Black, isort, mypy configuration
+│   ├── pytest.ini          # Pytest configuration
 │   └── requirements.txt
 ├── database/
-│   └── init/01_init.sql    # PostgreSQL initialisation script
+│   └── init/01_init.sql    # PostgreSQL initialisation script (run once on first start)
 ├── docker-compose.yml
 ├── Makefile                # Developer shortcuts
 └── .env.example            # Template for environment variables
 ```
+
+> **`alembic.ini` note:** `alembic.ini` is listed in `.gitignore` and is therefore not committed to the repository. If you need to run Alembic migrations outside Docker you must generate it first: `cd backend && alembic init alembic` (then restore `alembic/env.py` from the repo, or just run `docker compose exec backend alembic upgrade head`).
 
 ---
 
@@ -88,11 +94,11 @@ Copy the example file and fill in your values before running anything:
 cp .env.example .env
 ```
 
-Then open `.env` in your editor and replace the placeholder values (at minimum `OPENAI_API_KEY` and `SECRET_KEY`).
+Then open `.env` in your editor and replace the placeholder values. At minimum you **must** set `OPENAI_API_KEY` and `SECRET_KEY`.
 
 ### Generating a `SECRET_KEY`
 
-The `SECRET_KEY` is used to sign JWTs. Generate a cryptographically secure value with:
+`SECRET_KEY` is used to sign JWTs. Generate a cryptographically secure value with one of these commands:
 
 ```bash
 # Python (recommended)
@@ -106,14 +112,14 @@ openssl rand -hex 32
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `DATABASE_URL` | No¹ | assembled from parts | Full async DB URL — must use `postgresql+asyncpg://` scheme |
-| `POSTGRES_SERVER` | Yes | `localhost` | PostgreSQL host (use `postgres` when running inside Docker) |
+| `DATABASE_URL` | No ¹ | assembled from parts | Full async DB URL — **must** use `postgresql+asyncpg://` scheme |
+| `POSTGRES_SERVER` | Yes | `localhost` | PostgreSQL host (`postgres` inside Docker Compose) |
 | `POSTGRES_USER` | Yes | `secondself_user` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | **Yes** | — | PostgreSQL password — change from the default |
+| `POSTGRES_PASSWORD` | **Yes** | `secondself_pass` | PostgreSQL password — change before going to production |
 | `POSTGRES_DB` | Yes | `secondself_db` | PostgreSQL database name |
 | `POSTGRES_PORT` | Yes | `5432` | PostgreSQL port |
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key — the app will not work without this |
-| `OPENAI_MODEL` | No | `gpt-3.5-turbo` | OpenAI model name (`gpt-4`, `gpt-4o`, etc.) |
+| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key — chat will not work without this |
+| `OPENAI_MODEL` | No | `gpt-3.5-turbo` | OpenAI model (`gpt-4`, `gpt-4o`, `gpt-4-turbo`, …) |
 | `SECRET_KEY` | **Yes** | — | JWT signing secret — must be unique and kept private |
 | `ENVIRONMENT` | No | `development` | `development` or `production` |
 | `LOG_LEVEL` | No | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL` |
@@ -125,10 +131,11 @@ openssl rand -hex 32
 | `NEXT_PUBLIC_API_URL` | No | `http://localhost:8000` | Backend URL used by the browser |
 | `NEXT_PUBLIC_APP_NAME` | No | `Second Self` | Application display name |
 
-> ¹ If `DATABASE_URL` is omitted, it is assembled automatically from the individual `POSTGRES_*` variables.  
-> **The `DATABASE_URL` must use the `postgresql+asyncpg://` scheme** (not plain `postgresql://`) because the backend uses SQLAlchemy's async engine.
+> ¹ If `DATABASE_URL` is omitted it is assembled automatically from the individual `POSTGRES_*` variables in `backend/app/core/config.py`.
+>
+> **The `DATABASE_URL` must use the `postgresql+asyncpg://` scheme** — plain `postgresql://` will fail because the backend uses SQLAlchemy's async engine. Alembic automatically strips `+asyncpg` when running migrations so it can use `psycopg2`.
 
-### Example `.env` for local development
+### Example `.env`
 
 ```dotenv
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -140,15 +147,15 @@ POSTGRES_DB=secondself_db
 POSTGRES_PORT=5432
 
 # ── OpenAI ────────────────────────────────────────────────────────────────────
-OPENAI_API_KEY=sk-...                      # required
+OPENAI_API_KEY=sk-...                      # required — get yours at platform.openai.com
 OPENAI_MODEL=gpt-3.5-turbo
 
 # ── Application ───────────────────────────────────────────────────────────────
-SECRET_KEY=a1b2c3...                       # generate with: python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=a1b2c3...                       # generate: python -c "import secrets; print(secrets.token_hex(32))"
 ENVIRONMENT=development
 LOG_LEVEL=INFO
 
-# ── Redis ─────────────────────────────────────────────────────────────────────
+# ── Redis / Celery ────────────────────────────────────────────────────────────
 REDIS_URL=redis://localhost:6379
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
@@ -162,13 +169,13 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_APP_NAME=Second Self
 ```
 
-> **Docker Compose note:** When running with Docker Compose, you do **not** need to change `POSTGRES_SERVER`, `REDIS_URL`, `CELERY_BROKER_URL`, or `CELERY_RESULT_BACKEND` — the Compose file automatically overrides these with the correct container hostnames. Only `OPENAI_API_KEY` and `SECRET_KEY` must be set by you.
+> **Docker Compose note:** When running with Docker Compose, you do **not** need to change `POSTGRES_SERVER`, `REDIS_URL`, `CELERY_BROKER_URL`, or `CELERY_RESULT_BACKEND` — the Compose file automatically overrides these with the correct container hostnames (`postgres`, `redis`). Only `OPENAI_API_KEY` and `SECRET_KEY` must be set by you.
 
 ---
 
 ## Quick Start — Docker Compose (recommended)
 
-This workflow builds and starts all four services (frontend, backend, PostgreSQL, Redis) with a single command. PostgreSQL is initialised automatically on the first run.
+This workflow builds and starts all four services (frontend, backend, PostgreSQL, Redis) with a single command. PostgreSQL is initialised automatically on the first run via `database/init/01_init.sql`.
 
 ### Step 1 — Clone the repository
 
@@ -197,22 +204,15 @@ docker compose up --build
 ```
 
 Docker Compose will:
-1. Build the backend and frontend images
-2. Start PostgreSQL and Redis, waiting until both pass their health checks
-3. Start the backend (waits for DB and Redis to be healthy)
-4. Start the frontend (waits for the backend to be healthy)
 
-The first build typically takes **3–5 minutes**. Subsequent starts (without `--build`) are much faster.
+1. Build the backend and frontend images.
+2. Start PostgreSQL and Redis, waiting until both pass their health checks.
+3. Start the backend — waits for PostgreSQL and Redis to be healthy; creates all database tables on startup via SQLAlchemy.
+4. Start the frontend — waits for the backend to be healthy.
 
-### Step 4 — (First run) Apply database migrations
+> **First build:** typically takes **3–5 minutes** while Docker downloads base images and installs dependencies. Subsequent starts without `--build` are much faster.
 
-The backend automatically creates all tables via SQLAlchemy on startup. To explicitly apply Alembic migrations instead:
-
-```bash
-docker compose exec backend alembic upgrade head
-```
-
-### Step 5 — Open the app
+### Step 4 — Open the app
 
 | Service | URL |
 |---|---|
@@ -222,26 +222,27 @@ docker compose exec backend alembic upgrade head
 | **ReDoc** | <http://localhost:8000/redoc> |
 | **Health check** | <http://localhost:8000/health> |
 
-### Running in the background
+### Running in the background (detached mode)
 
 ```bash
-docker compose up --build -d    # detached mode
+docker compose up --build -d    # start all services in the background
 docker compose logs -f          # stream logs from all services
-docker compose logs -f backend  # logs for a single service
+docker compose logs -f backend  # stream logs for a single service
+docker compose ps               # check the status and health of each service
 ```
 
 ### Stopping the stack
 
 ```bash
 docker compose down             # stop containers, keep volumes (data preserved)
-docker compose down -v          # stop containers AND delete volumes — DATA LOSS!
+docker compose down -v          # stop containers AND delete volumes — ⚠ DATA LOSS
 ```
 
 ---
 
 ## Local Development Setup (without Docker)
 
-Use this workflow for hot-reload and direct debugger access. PostgreSQL and Redis still run in Docker (simplest approach); only the application services run locally.
+Use this workflow for hot-reload and direct debugger access. PostgreSQL and Redis still run inside Docker (simplest approach); only the application services run on your machine.
 
 ### Step 1 — Start infrastructure services
 
@@ -249,22 +250,22 @@ Use this workflow for hot-reload and direct debugger access. PostgreSQL and Redi
 docker compose up postgres redis -d
 ```
 
+This starts just the database and cache, forwarding their default ports (`5432`, `6379`) to your host machine.
+
 ### Step 2 — Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` — the defaults match the Docker-hosted PostgreSQL and Redis, so only these values need changing:
+The defaults in `.env.example` point to `localhost`, which matches the Docker-forwarded ports. Only these two values need changing:
 
 ```dotenv
 OPENAI_API_KEY=sk-...
 SECRET_KEY=<generated-secret>
 ```
 
-> The `POSTGRES_SERVER=localhost` default works because port `5432` is forwarded to your host.
-
-### Step 3 — Backend
+### Step 3 — Set up and start the backend
 
 ```bash
 cd backend
@@ -273,26 +274,25 @@ cd backend
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 
-# Install Python dependencies (includes asyncpg for async DB I/O)
+# Install Python dependencies
 pip install -r requirements.txt
-
-# Apply database migrations
-alembic upgrade head
 
 # Start the development server with auto-reload
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The backend reads all configuration from the `.env` file in the project root via `pydantic-settings`. The API is now available at <http://localhost:8000>.
+The backend reads all configuration from the root `.env` file via `pydantic-settings`. Database tables are created automatically on startup. The API is available at <http://localhost:8000>.
 
-### Step 4 — Frontend
+> **Note:** `POSTGRES_SERVER=localhost` (the default) works because port `5432` is forwarded from the Docker container to your host.
 
-Open a new terminal:
+### Step 4 — Set up and start the frontend
+
+Open a **new terminal**:
 
 ```bash
 cd frontend
 
-# Install Node dependencies
+# Install Node.js dependencies
 npm install
 
 # Create the frontend environment file
@@ -305,14 +305,24 @@ npm run dev
 
 The frontend is now available at <http://localhost:3000>.
 
+> **API proxy:** `next.config.js` rewrites all `/api/*` requests made by the Next.js dev server to the backend URL. The frontend also makes direct calls to `NEXT_PUBLIC_API_URL` from the browser for non-proxied routes such as `/health`.
+
 ---
 
 ## Makefile Shortcuts
 
-A `Makefile` at the project root exposes common tasks to avoid typing long commands.
+A `Makefile` at the project root exposes common tasks. Run `make help` to list all targets.
+
+> **CLI note:** The Makefile uses the `docker-compose` CLI (Compose v1 plugin syntax). If your system only has the `docker compose` (v2, space-separated) sub-command, either install the v1 plugin or replace `docker-compose` with `docker compose` in the Makefile targets you invoke directly.
 
 ```bash
 make help            # list all available targets
+```
+
+### First-time setup (no Docker)
+
+```bash
+make dev-setup       # copies .env.example → .env, runs npm install and pip install -r requirements.txt
 ```
 
 ### Docker
@@ -329,8 +339,8 @@ make clean           # remove containers, volumes, and prune Docker system
 ### Database
 
 ```bash
-make migrate                              # run: alembic upgrade head (inside backend/)
-make migrate-create name="add_users"      # generate a new Alembic revision
+make migrate                          # run: alembic upgrade head (inside backend/)
+make migrate-create name="add_users"  # generate a new Alembic revision
 ```
 
 ### Testing & Code Quality
@@ -344,14 +354,8 @@ make format          # black + isort (backend) and Prettier (frontend)
 ### Local Dev Servers
 
 ```bash
-make backend         # start uvicorn with --reload (port 8000)
-make frontend        # start Next.js dev server (port 3000)
-```
-
-### First-time Setup (no Docker)
-
-```bash
-make dev-setup       # copies .env.example → .env, runs npm install and pip install
+make backend         # start uvicorn with --reload on port 8000
+make frontend        # start Next.js dev server on port 3000
 ```
 
 ---
@@ -364,7 +368,7 @@ All REST endpoints live under the `/api/v1` prefix. The full interactive documen
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Returns service status |
+| `GET` | `/health` | Returns service health status |
 
 ```bash
 curl -s http://localhost:8000/health | jq
@@ -386,7 +390,7 @@ curl -s http://localhost:8000/health | jq
 | `GET` | `/api/v1/chat/conversations/` | List conversations (`skip`, `limit` query params) |
 | `GET` | `/api/v1/chat/conversations/{id}` | Retrieve a single conversation with its messages |
 
-**Send a message:**
+**Send a message (start a new conversation):**
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/chat/ \
@@ -455,73 +459,92 @@ curl -s -X POST http://localhost:8000/api/v1/users/ \
 }
 ```
 
-**Get current user:**
+**Get current user (demo):**
 
 ```bash
 curl -s http://localhost:8000/api/v1/users/me | jq
+```
+
+**Get user by ID:**
+
+```bash
+curl -s http://localhost:8000/api/v1/users/1 | jq
 ```
 
 ---
 
 ## Database Migrations
 
-Migrations are managed with [Alembic](https://alembic.sqlalchemy.org/).
+Migrations are managed with [Alembic](https://alembic.sqlalchemy.org/). The backend automatically creates all tables via SQLAlchemy on startup, so explicit migration runs are only needed when you change the schema.
+
+### With Docker Compose (recommended)
 
 ```bash
 # Apply all pending migrations
-cd backend && alembic upgrade head
+docker compose exec backend alembic upgrade head
 
 # Generate a new migration from model changes
-cd backend && alembic revision --autogenerate -m "describe_your_change"
+docker compose exec backend alembic revision --autogenerate -m "describe_your_change"
 
 # Roll back one migration
-cd backend && alembic downgrade -1
+docker compose exec backend alembic downgrade -1
 
 # Show current revision
-cd backend && alembic current
+docker compose exec backend alembic current
 
 # Show full migration history
-cd backend && alembic history --verbose
+docker compose exec backend alembic history --verbose
 ```
 
-When running with Docker Compose, prefix commands with `docker compose exec backend`:
+### Locally (inside the virtual environment)
 
 ```bash
-docker compose exec backend alembic upgrade head
-docker compose exec backend alembic revision --autogenerate -m "describe_your_change"
-docker compose exec backend alembic current
+cd backend
+source venv/bin/activate
+
+alembic upgrade head
+alembic revision --autogenerate -m "describe_your_change"
+alembic downgrade -1
+alembic current
+alembic history --verbose
 ```
 
-Or use the Makefile wrappers:
+### Via Makefile
 
 ```bash
 make migrate
 make migrate-create name="describe_your_change"
 ```
 
-> **How it works:** Alembic strips the `+asyncpg` suffix from `DATABASE_URL` when running migrations so it can use the synchronous `psycopg2` driver. The application itself uses `asyncpg` for async I/O at runtime.
+> **How Alembic handles the async URL:** `alembic/env.py` automatically strips the `+asyncpg` suffix from `DATABASE_URL` before passing it to Alembic, so Alembic uses `psycopg2` (synchronous) for running migrations while the application uses `asyncpg` for async I/O at runtime.
 
 ---
 
 ## Running Tests
 
+Tests live in `backend/tests/` and are configured via `backend/pytest.ini`.
+
 ```bash
-# Backend (pytest) — from the backend/ directory
-cd backend
-pytest
+# Run the full test suite from the backend directory
+cd backend && pytest
 
 # Run a specific test file
-pytest tests/test_chat.py
+cd backend && pytest tests/test_chat.py
 
 # Run only unit tests
-pytest -m unit
+cd backend && pytest -m unit
 
-# Watch mode (re-runs on file changes)
-pytest -f
+# Run only integration tests
+cd backend && pytest -m integration
+
+# Verbose output with short tracebacks (matches pytest.ini defaults)
+cd backend && pytest --verbose --tb=short
 
 # Via Makefile (from project root)
 make test
 ```
+
+Available pytest markers (defined in `pytest.ini`): `unit`, `integration`, `slow`.
 
 ---
 
@@ -532,10 +555,10 @@ make test
 ```bash
 cd backend
 
-black app/          # auto-format Python code
-isort app/          # sort imports
-flake8 app/         # lint (config in backend/.flake8)
-mypy app/           # static type checking (config in backend/pyproject.toml)
+black app/          # auto-format Python code (line length 88, configured in pyproject.toml)
+isort app/          # sort imports (black-compatible profile)
+flake8 app/         # lint (config in backend/.flake8, max-line-length 88)
+mypy app/           # static type checking (strict settings in pyproject.toml)
 ```
 
 ### Frontend
@@ -543,35 +566,60 @@ mypy app/           # static type checking (config in backend/pyproject.toml)
 ```bash
 cd frontend
 
-npm run lint        # ESLint
-npm run lint:fix    # ESLint with auto-fix
-npm run type-check  # TypeScript (tsc --noEmit)
-npm run prettier    # Prettier auto-format
+npm run lint         # ESLint (config in .eslintrc.json)
+npm run lint:fix     # ESLint with auto-fix
+npm run type-check   # TypeScript — tsc --noEmit
+npm run prettier     # Prettier auto-format (config in .prettierrc)
+npm run prettier:check  # Prettier check without writing
 ```
 
 ### Run everything at once (via Makefile)
 
 ```bash
-make lint           # lint backend and frontend
-make format         # format backend and frontend
+make lint            # flake8 + mypy (backend) and ESLint (frontend)
+make format          # black + isort (backend) and Prettier (frontend)
 ```
 
 ---
 
 ## Docker Commands Reference
 
+### Building and starting services
+
 ```bash
+# Build and start all services (foreground)
+docker compose up --build
+
+# Build and start all services (background)
+docker compose up --build -d
+
 # Rebuild a single service after a Dockerfile or dependency change
 docker compose build backend
 docker compose build frontend
 
-# Restart a single service without rebuilding
-docker compose restart backend
+# Start a specific service (and its dependencies)
+docker compose up backend -d
+```
 
-# View logs for a specific service
+### Inspecting services
+
+```bash
+# Check container status and health
+docker compose ps
+
+# Stream logs from all services
+docker compose logs -f
+
+# Stream logs from a specific service
 docker compose logs -f backend
 docker compose logs -f frontend
+docker compose logs -f postgres
+docker compose logs -f redis
+```
 
+### Interacting with containers
+
+```bash
 # Open a shell inside a running container
 docker compose exec backend bash
 docker compose exec frontend sh
@@ -579,10 +627,23 @@ docker compose exec frontend sh
 # Connect to PostgreSQL directly
 docker compose exec postgres psql -U secondself_user -d secondself_db
 
-# Check container health status
-docker compose ps
+# Run a one-off command in the backend container
+docker compose exec backend python -c "from app.core.config import settings; print(settings.DATABASE_URL)"
+```
 
-# Remove everything (containers, networks, volumes)
+### Restarting and stopping
+
+```bash
+# Restart a single service without rebuilding
+docker compose restart backend
+
+# Stop all services (data volumes preserved)
+docker compose down
+
+# Stop all services and remove volumes — ⚠ DATA LOSS
+docker compose down -v
+
+# Remove everything including orphaned containers
 docker compose down -v --remove-orphans
 docker system prune -f
 ```
@@ -595,19 +656,16 @@ docker system prune -f
 
 **Symptom:** Backend logs show `Connection refused` or `could not connect to server`.
 
-**With Docker Compose:** Ensure the `postgres` container is healthy before the backend starts:
+**With Docker Compose:** Ensure the `postgres` container is healthy:
 
 ```bash
 docker compose ps postgres
-```
-
-If the postgres container is unhealthy, check its logs:
-
-```bash
 docker compose logs postgres
 ```
 
-**With local dev:** Confirm PostgreSQL is running and `POSTGRES_SERVER=localhost` is set in `.env`.
+The backend `depends_on` the `postgres` service with `condition: service_healthy`, so if the backend started it means PostgreSQL passed its health check. If the backend container keeps restarting, check the `DATABASE_URL` scheme (see below).
+
+**With local dev:** Confirm PostgreSQL is running (`docker compose up postgres -d`) and that `POSTGRES_SERVER=localhost` is set in `.env`.
 
 ---
 
@@ -615,27 +673,27 @@ docker compose logs postgres
 
 **Symptom:** Chat requests return `500` with a message about the API key.
 
-The backend starts successfully even with a missing/invalid key, but every chat request will fail. Set the key in `.env` and restart:
+The backend starts successfully even with a missing or invalid key, but every `/api/v1/chat/` request will fail. Set the correct key in `.env` and restart:
 
 ```bash
 docker compose restart backend
-# or, locally:
-# kill the uvicorn process and rerun it
 ```
+
+Or, for local dev, stop `uvicorn` and rerun it after updating `.env`.
 
 ---
 
 ### `DATABASE_URL` scheme error
 
-**Symptom:** Backend logs show `Could not load backend 'postgresql'` or similar asyncpg driver errors.
+**Symptom:** Backend logs show `Could not load backend 'postgresql'` or asyncpg driver errors.
 
-Ensure `DATABASE_URL` uses the `postgresql+asyncpg://` scheme, not plain `postgresql://`:
+Ensure `DATABASE_URL` uses the `postgresql+asyncpg://` scheme:
 
 ```dotenv
 # ✅ Correct
 DATABASE_URL=postgresql+asyncpg://secondself_user:secondself_pass@localhost:5432/secondself_db
 
-# ❌ Incorrect — will fail with async SQLAlchemy
+# ❌ Wrong — will fail with async SQLAlchemy
 DATABASE_URL=postgresql://secondself_user:secondself_pass@localhost:5432/secondself_db
 ```
 
@@ -643,19 +701,19 @@ DATABASE_URL=postgresql://secondself_user:secondself_pass@localhost:5432/seconds
 
 ### Frontend shows "Disconnected"
 
-**Symptom:** The UI displays a *Disconnected* status.
+**Symptom:** The UI header displays a red *● Disconnected* badge.
 
-The frontend polls `GET /health` on startup. If it shows *Disconnected*, check:
+The frontend polls `GET /health` on load. If it shows *Disconnected*, check:
 
 1. The backend container is running: `docker compose ps`
-2. `NEXT_PUBLIC_API_URL` in `.env` points to the correct host and port
-3. CORS is configured — `http://localhost:3000` is allowed by default
+2. `NEXT_PUBLIC_API_URL` in `.env` points to the correct host and port (`http://localhost:8000` for local dev)
+3. CORS — `http://localhost:3000` is allowed by default in `backend/app/core/config.py`
 
 ---
 
 ### Port conflicts
 
-The default ports are:
+Default port assignments:
 
 | Port | Service |
 |---|---|
@@ -664,39 +722,60 @@ The default ports are:
 | `5432` | PostgreSQL |
 | `6379` | Redis |
 
-If any port is already in use, either stop the conflicting process or update the port mappings in `docker-compose.yml` (left-hand side of `ports` entries).
+If a port is already in use, either stop the conflicting process or change the host-side port in `docker-compose.yml` (the left-hand number in the `ports:` mapping).
 
 ---
 
 ### Alembic migration failures
 
-**Symptom:** `alembic upgrade head` fails with a connection error.
+**Symptom:** `alembic upgrade head` fails with a connection or import error.
 
-- Ensure PostgreSQL is running and reachable
-- When running locally (outside Docker), check that `POSTGRES_SERVER=localhost` and port `5432` is exposed: `docker compose up postgres -d`
-- The `DATABASE_URL` used by Alembic is automatically stripped of `+asyncpg` (handled in `alembic/env.py`) so Alembic uses `psycopg2`; ensure `psycopg2-binary` is installed
+- Ensure PostgreSQL is running and reachable.
+- For local dev (outside Docker), run `docker compose up postgres -d` first so port `5432` is forwarded.
+- `alembic.ini` is git-ignored. If running outside Docker for the first time, generate it: `cd backend && alembic init alembic` (then restore `alembic/env.py` from the repo). Inside Docker the file is baked into the image and already present.
+- Ensure `psycopg2-binary` is installed in your virtual environment — Alembic uses it for synchronous migrations.
 
 ---
 
 ### Python virtual environment issues
 
-If you see `ModuleNotFoundError` when running the backend locally, ensure the virtual environment is activated and dependencies are installed:
+**Symptom:** `ModuleNotFoundError` when running the backend locally.
+
+Ensure the virtual environment is activated before running any Python commands:
 
 ```bash
 cd backend
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+---
+
+### Docker Compose CLI version mismatch
+
+**Symptom:** `make up` / `make build` fail with `docker-compose: command not found`.
+
+The `Makefile` uses the `docker-compose` binary (Compose v1 plugin). Install it or create an alias:
+
+```bash
+# Option A — install the standalone docker-compose binary
+# https://docs.docker.com/compose/install/standalone/
+
+# Option B — alias v2 to the v1 name
+echo 'alias docker-compose="docker compose"' >> ~/.bashrc && source ~/.bashrc
+```
+
+Alternatively, run the underlying `docker compose` (v2) commands directly — they are documented in each section above.
 
 ---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feat/my-feature`
-3. Make your changes
-4. Ensure `make lint` and `make test` pass
-5. Submit a pull request
+1. Fork the repository and create a feature branch: `git checkout -b feat/my-feature`
+2. Make your changes following the existing code style
+3. Ensure `make lint` and `make test` pass
+4. Open a pull request with a clear description of the change
 
 ---
 
