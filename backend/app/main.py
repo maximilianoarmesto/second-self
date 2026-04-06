@@ -17,16 +17,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
     logger.info("Starting up Second Self API...")
-    
-    # Create database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
+
+    if not settings.TESTING:
+        # Create database tables (skipped during automated tests where the
+        # test conftest manages the schema against an in-memory SQLite DB).
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
     yield
-    
-    # Shutdown
+
     logger.info("Shutting down Second Self API...")
 
 
@@ -48,8 +48,8 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Add trusted host middleware
-if settings.ALLOWED_HOSTS:
+# Add trusted host middleware (disabled during testing to allow httpx test client)
+if settings.ALLOWED_HOSTS and not settings.TESTING:
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=settings.ALLOWED_HOSTS,

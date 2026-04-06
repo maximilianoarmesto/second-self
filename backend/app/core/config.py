@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional, Union
-from pydantic import AnyHttpUrl, PostgresDsn, field_validator, model_validator
+from typing import List, Optional, Union
+from pydantic import AnyHttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -73,6 +73,9 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
+
+    # Testing — set to True to skip DB lifespan initialization
+    TESTING: bool = False
 
 
 settings = Settings()
