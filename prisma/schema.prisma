@@ -1,3 +1,126 @@
-// This file is intentionally left empty.
-// Prisma is configured inside the frontend/ directory.
-// See frontend/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Owner {
+  id        Int      @id @default(autoincrement())
+  cloneName String   @default("My Second Self") @map("clone_name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  settings     Settings?
+  documents    Document[]
+  chatSessions ChatSession[]
+  shareLinks   ShareLink[]
+
+  @@map("owners")
+}
+
+model Settings {
+  id                    Int      @id @default(autoincrement())
+  ownerId               Int      @unique @map("owner_id")
+  cloneName             String   @default("My Second Self") @map("clone_name")
+  systemPrompt          String   @default("You are the user's Second Self. Speak in first person as if you are the user. Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic. Only make claims supported by the retrieved knowledge. If something is unknown or unsupported, say so honestly and naturally. Do not mention that you are an AI unless explicitly asked.") @map("system_prompt")
+  tone                  String   @default("natural")
+  responseLength        String   @default("balanced") @map("response_length")
+  openaiApiKeyEncrypted String?  @map("openai_api_key_encrypted")
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
+
+model Document {
+  id               Int            @id @default(autoincrement())
+  filename         String
+  originalFilename String         @map("original_filename")
+  fileSize         Int            @map("file_size")
+  pageCount        Int?           @map("page_count")
+  status           DocumentStatus @default(PENDING)
+  errorMessage     String?        @map("error_message")
+  ownerId          Int            @map("owner_id")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  owner  Owner           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  chunks DocumentChunk[]
+
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id         Int                          @id @default(autoincrement())
+  documentId Int                          @map("document_id")
+  chunkIndex Int                          @map("chunk_index")
+  pageNumber Int                          @map("page_number")
+  content    String
+  embedding  Unsupported("vector(1536)")?
+  createdAt  DateTime                     @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_chunks")
+}
+
+model ChatSession {
+  id        Int      @id @default(autoincrement())
+  title     String   @default("New Conversation")
+  ownerId   Int      @map("owner_id")
+  isPublic  Boolean  @default(false) @map("is_public")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  owner    Owner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@map("chat_sessions")
+}
+
+model Message {
+  id        Int         @id @default(autoincrement())
+  content   String
+  role      MessageRole
+  sessionId Int         @map("session_id")
+  sources   Json?
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model ShareLink {
+  id        Int       @id @default(autoincrement())
+  ownerId   Int       @map("owner_id")
+  tokenHash String    @unique @map("token_hash")
+  label     String    @default("Public Link")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  owner Owner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("share_links")
+}
+
+enum DocumentStatus {
+  PENDING    @map("pending")
+  PROCESSING @map("processing")
+  COMPLETED  @map("completed")
+  FAILED     @map("failed")
+
+  @@map("document_status")
+}
+
+enum MessageRole {
+  USER      @map("user")
+  ASSISTANT @map("assistant")
+  SYSTEM    @map("system")
+
+  @@map("message_role")
+}
