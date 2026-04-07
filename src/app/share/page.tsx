@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link2, Plus, Copy, Check, XCircle, Loader2, ExternalLink } from 'lucide-react';
+import { Link2, Plus, Copy, Check, XCircle, Loader2, ExternalLink, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -41,12 +41,53 @@ interface ShareLink {
 }
 
 // ---------------------------------------------------------------------------
+// Clipboard helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Copies `text` to the clipboard.
+ * Falls back to the legacy `execCommand` approach when the Clipboard API is
+ * unavailable (non-HTTPS / non-localhost contexts).
+ * Returns `true` if the copy succeeded, `false` otherwise.
+ */
+async function copyText(text: string): Promise<boolean> {
+  if (typeof navigator === 'undefined') return false;
+
+  // Modern Clipboard API
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to legacy approach
+    }
+  }
+
+  // Legacy execCommand fallback
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function SharePage() {
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [revokeConfirm, setRevokeConfirm] = useState<number | null>(null);
   const [revokingId, setRevokingId] = useState<number | null>(null);
@@ -66,8 +107,8 @@ export default function SharePage() {
           // No raw token available for existing links
         }))
       );
-    } catch {
-      // Silently handle
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load share links.');
     } finally {
       setLoading(false);
     }
@@ -80,6 +121,7 @@ export default function SharePage() {
   // ---- Generate new link ----
   const generateLink = async () => {
     setGenerating(true);
+    setError(null);
     try {
       const created = await apiFetch<ShareLinkCreated>('/api/share-links', {
         method: 'POST',
@@ -94,10 +136,10 @@ export default function SharePage() {
       };
       setLinks((prev) => [newLink, ...prev]);
       setNewlyCreatedId(newLink.id);
-      // Auto-copy the URL
+      // Auto-copy the URL (best-effort)
       copyToClipboard(created.token, created.id);
-    } catch {
-      // Handle error silently
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to generate share link.');
     } finally {
       setGenerating(false);
     }
@@ -109,8 +151,8 @@ export default function SharePage() {
     try {
       await apiFetch(`/api/share-links/${id}`, { method: 'DELETE' });
       setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, isActive: false } : l)));
-    } catch {
-      // Handle error silently
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke share link.');
     } finally {
       setRevokingId(null);
       setRevokeConfirm(null);
@@ -118,12 +160,13 @@ export default function SharePage() {
   };
 
   // ---- Copy to clipboard ----
-  const copyToClipboard = (token: string, id: number) => {
+  const copyToClipboard = async (token: string, id: number) => {
     const url = `${window.location.origin}/clone/${token}`;
-    navigator.clipboard.writeText(url).then(() => {
+    const ok = await copyText(url);
+    if (ok) {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
-    });
+    }
   };
 
   const getPublicUrl = (token: string) => {
@@ -146,6 +189,24 @@ export default function SharePage() {
           Generate New Link
         </Button>
       </div>
+
+      {/* Global error */}
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-black">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+          <div>
+            <p className="font-medium">Error</p>
+            <p className="mt-0.5">{error}</p>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="ml-auto flex-shrink-0 text-gray-500 hover:text-black"
+            aria-label="Dismiss error"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -303,8 +364,7 @@ export default function SharePage() {
                   {/* New link prompt */}
                   {isNew && isActive && hasToken && (
                     <p className="text-xs text-black font-medium">
-                      Link created and copied to clipboard. Save this URL — it cannot be shown
-                      again.
+                      Link created. Save this URL — it cannot be shown again.
                     </p>
                   )}
                 </CardContent>

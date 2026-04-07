@@ -45,6 +45,9 @@ function formatDate(iso: string): string {
   });
 }
 
+/** Interval (ms) used to auto-poll when any document is still PENDING or PROCESSING. */
+const POLL_INTERVAL_MS = 4000;
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -61,26 +64,75 @@ export default function KnowledgeBasePage() {
   const [reprocessingId, setReprocessingId] = useState<number | null>(null);
   const reprocessInputRef = useRef<HTMLInputElement>(null);
   const reprocessTargetId = useRef<number | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- Fetch list ----
 
-  const fetchDocuments = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const fetchDocuments = useCallback(async (silent = false) => {
+    if (!silent) {
+      setIsLoading(true);
+      setError(null);
+    }
     try {
       const data = await apiFetch<DocumentSummary[]>('/api/documents');
-      setDocuments(data);
+      setDocuments((prev) => {
+        // Collect IDs of documents whose status changed so we can invalidate
+        // their cached detail below.
+        const changedIds = new Set(
+          data
+            .filter((d) => {
+              const old = prev.find((p) => p.id === d.id);
+              return old && old.status !== d.status;
+            })
+            .map((d) => d.id)
+        );
+        // Invalidate detail cache for changed docs (outside this updater).
+        if (changedIds.size > 0) {
+          setDetailMap((detailPrev) => {
+            const next = { ...detailPrev };
+            changedIds.forEach((id) => delete next[id]);
+            return next;
+          });
+        }
+        return data;
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load documents. Please try again.';
-      setError(message);
+      if (!silent) setError(message);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  // ---- Auto-poll while any document is PENDING or PROCESSING ----
+  useEffect(() => {
+    const hasInProgress = documents.some(
+      (d) => d.status === 'PENDING' || d.status === 'PROCESSING'
+    );
+
+    // Clear any existing timer before (re-)scheduling.
+    if (pollTimerRef.current !== null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
+    if (hasInProgress) {
+      pollTimerRef.current = setTimeout(() => {
+        fetchDocuments(true /* silent */);
+      }, POLL_INTERVAL_MS);
+    }
+
+    return () => {
+      if (pollTimerRef.current !== null) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [documents, fetchDocuments]);
 
   // ---- Expand / detail ----
 
@@ -189,6 +241,10 @@ export default function KnowledgeBasePage() {
 
   // ---- Render ----
 
+  const hasInProgress = documents.some(
+    (d) => d.status === 'PENDING' || d.status === 'PROCESSING'
+  );
+
   return (
     <main className="container mx-auto p-6 max-w-4xl">
       {/* Header */}
@@ -203,7 +259,7 @@ export default function KnowledgeBasePage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchDocuments}
+            onClick={() => fetchDocuments()}
             disabled={isLoading}
             className="gap-2"
           >
@@ -218,6 +274,14 @@ export default function KnowledgeBasePage() {
           </Link>
         </div>
       </div>
+
+      {/* Auto-polling indicator */}
+      {hasInProgress && !isLoading && (
+        <div className="mb-4 flex items-center gap-2 text-xs text-gray-500">
+          <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+          <span>Checking processing status automatically&hellip;</span>
+        </div>
+      )}
 
       {/* Global error */}
       {error && (

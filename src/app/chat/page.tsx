@@ -10,6 +10,9 @@ import {
   FileText,
   Loader2,
   Trash2,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
@@ -64,6 +67,11 @@ export default function ChatPage() {
   const [showSources, setShowSources] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Inline rename state
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -90,6 +98,14 @@ export default function ChatPage() {
     }
     loadSessions();
   }, []);
+
+  // ---- Focus rename input when entering rename mode ----
+  useEffect(() => {
+    if (renamingId !== null) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingId]);
 
   // ---- Load messages for active session ----
   useEffect(() => {
@@ -122,11 +138,13 @@ export default function ChatPage() {
   const createNewSession = () => {
     setActiveSessionId(null);
     setMessages([]);
+    setRenamingId(null);
     inputRef.current?.focus();
   };
 
   // ---- Select session ----
   const selectSession = (id: number) => {
+    if (renamingId !== null) return; // Don't switch while renaming
     setActiveSessionId(id);
   };
 
@@ -142,6 +160,57 @@ export default function ChatPage() {
       }
     } catch {
       // silent
+    }
+  };
+
+  // ---- Start rename ----
+  const startRename = (session: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(session.id);
+    setRenameValue(session.title);
+  };
+
+  // ---- Commit rename ----
+  const commitRename = async (id: number) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      cancelRename();
+      return;
+    }
+    // Optimistic update
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, title: trimmed } : s))
+    );
+    setRenamingId(null);
+    try {
+      await apiFetch(`/api/chat/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: trimmed }),
+      });
+    } catch {
+      // Revert on failure by re-fetching sessions
+      try {
+        const updated = await apiFetch<ChatSession[]>('/api/chat/sessions');
+        setSessions(updated);
+      } catch {
+        // silent
+      }
+    }
+  };
+
+  // ---- Cancel rename ----
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
+  };
+
+  // ---- Handle rename key events ----
+  const handleRenameKeyDown = (e: React.KeyboardEvent, id: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitRename(id);
+    } else if (e.key === 'Escape') {
+      cancelRename();
     }
   };
 
@@ -179,6 +248,10 @@ export default function ChatPage() {
       // If this was a new session, update session list
       if (!activeSessionId && response.sessionId) {
         setActiveSessionId(response.sessionId);
+        const updatedSessions = await apiFetch<ChatSession[]>('/api/chat/sessions');
+        setSessions(updatedSessions);
+      } else if (activeSessionId && response.sessionId) {
+        // Refresh session list to pick up updated title / timestamp
         const updatedSessions = await apiFetch<ChatSession[]>('/api/chat/sessions');
         setSessions(updatedSessions);
       }
@@ -246,30 +319,21 @@ export default function ChatPage() {
             </p>
           ) : (
             sessions.map((session) => (
-              <div
+              <SessionItem
                 key={session.id}
-                onClick={() => selectSession(session.id)}
-                className={cn(
-                  'group w-full text-left rounded-lg px-3 py-2.5 transition-colors cursor-pointer flex items-center gap-2',
-                  activeSessionId === session.id
-                    ? 'bg-gray-100 text-black'
-                    : 'text-black hover:bg-gray-100'
-                )}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{session.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {new Date(session.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => deleteSession(session.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
-                  aria-label="Delete session"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                session={session}
+                isActive={activeSessionId === session.id}
+                isRenaming={renamingId === session.id}
+                renameValue={renameValue}
+                renameInputRef={renamingId === session.id ? renameInputRef : undefined}
+                onSelect={() => selectSession(session.id)}
+                onDelete={(e) => deleteSession(session.id, e)}
+                onStartRename={(e) => startRename(session, e)}
+                onRenameChange={setRenameValue}
+                onRenameKeyDown={(e) => handleRenameKeyDown(e, session.id)}
+                onRenameCommit={() => commitRename(session.id)}
+                onRenameCancel={cancelRename}
+              />
             ))
           )}
         </div>
@@ -360,6 +424,110 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SessionItem sub-component
+// ---------------------------------------------------------------------------
+
+interface SessionItemProps {
+  session: ChatSession;
+  isActive: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  renameInputRef?: React.RefObject<HTMLInputElement>;
+  onSelect: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onStartRename: (e: React.MouseEvent) => void;
+  onRenameChange: (value: string) => void;
+  onRenameKeyDown: (e: React.KeyboardEvent) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+}
+
+function SessionItem({
+  session,
+  isActive,
+  isRenaming,
+  renameValue,
+  renameInputRef,
+  onSelect,
+  onDelete,
+  onStartRename,
+  onRenameChange,
+  onRenameKeyDown,
+  onRenameCommit,
+  onRenameCancel,
+}: SessionItemProps) {
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        'group w-full text-left rounded-lg px-3 py-2.5 transition-colors cursor-pointer',
+        isActive
+          ? 'bg-gray-100 text-black'
+          : 'text-black hover:bg-gray-100'
+      )}
+    >
+      {isRenaming ? (
+        /* ── Inline rename row ── */
+        <div
+          className="flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onKeyDown={onRenameKeyDown}
+            className="flex-1 min-w-0 text-sm bg-white border border-gray-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-black text-black"
+            aria-label="Rename conversation"
+          />
+          <button
+            onClick={onRenameCommit}
+            className="p-1 rounded text-gray-500 hover:text-black transition-colors flex-shrink-0"
+            aria-label="Confirm rename"
+          >
+            <Check className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onRenameCancel}
+            className="p-1 rounded text-gray-400 hover:text-black transition-colors flex-shrink-0"
+            aria-label="Cancel rename"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : (
+        /* ── Normal row ── */
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{session.title}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {new Date(session.updatedAt).toLocaleDateString()}
+            </p>
+          </div>
+          {/* Action buttons — visible on hover */}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <button
+              onClick={onStartRename}
+              className="p-1 rounded text-gray-400 hover:text-black transition-colors"
+              aria-label="Rename conversation"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-1 rounded text-gray-400 hover:text-black transition-colors"
+              aria-label="Delete conversation"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
