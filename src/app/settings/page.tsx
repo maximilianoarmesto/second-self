@@ -337,17 +337,20 @@ export default function SettingsPage() {
       {/* System Prompt */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">System Prompt</CardTitle>
+          <CardTitle className="text-base">Additional Persona Instructions</CardTitle>
           <CardDescription>
-            Custom instructions prepended to every conversation. Use this to define your clone's
-            personality and constraints.
+            Optional extra instructions appended after the built-in first-person identity rules.
+            Use this to add biographical details, tone notes, or style preferences for your clone.
+            The core rules (always speak as {cloneName || 'your clone name'}, only use the
+            knowledge base, never hallucinate) are always enforced regardless of what you write
+            here.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="You are a helpful assistant that answers questions based on the provided knowledge base..."
+            placeholder={`e.g. I prefer to answer concisely. I grew up in San Francisco. I'm passionate about renewable energy.`}
             rows={6}
             className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black resize-y min-h-[120px]"
           />
