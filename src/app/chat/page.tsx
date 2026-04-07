@@ -32,6 +32,7 @@ interface ChatSession {
 
 interface Source {
   filename: string;
+  chunkIndex: number;
   pageNumber: number;
   content: string;
 }
@@ -410,12 +411,16 @@ function MessageBubble({
             {message.sources.map((src, i) => (
               <div
                 key={i}
+                title={src.content}
                 className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500"
               >
-                <FileText className="w-3 h-3" />
+                <FileText className="w-3 h-3 flex-shrink-0" />
                 <span className="truncate max-w-[120px]">{src.filename}</span>
-                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0">
                   p.{src.pageNumber}
+                </Badge>
+                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0">
+                  §{src.chunkIndex}
                 </Badge>
               </div>
             ))}
