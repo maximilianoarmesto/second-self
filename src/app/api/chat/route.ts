@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 import { generateResponse } from '@/lib/services/rag-service';
 // Retrieval constants are defined in src/lib/config/rag.ts for easy tuning.
 // Importing them here makes the active configuration visible in route-level
@@ -34,11 +35,24 @@ export async function POST(request: NextRequest) {
         `MAX_CHUNKS: ${MAX_CHUNKS}, MIN_SIMILARITY_THRESHOLD: ${MIN_SIMILARITY_THRESHOLD}`
     );
 
+    // Resolve the clone name and custom prompt from Settings so the system
+    // prompt is dynamically built with the operator's current configuration.
+    // Both values are passed explicitly to generateResponse() — this makes
+    // the persona construction visible at the route level and avoids relying
+    // on the service's internal DB fallback for the normal private-chat path.
+    const settings = await prisma.settings.findUnique({ where: { ownerId: 1 } });
+    const cloneName = settings?.cloneName ?? undefined;
+    // Pass null when no custom prompt is saved so generateResponse() knows
+    // to skip its own DB fetch (explicit null ≠ undefined/missing).
+    const customPrompt = settings?.systemPrompt ?? null;
+
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
       apiKey,
       showSources: showSources ?? false,
+      cloneName,
+      customPrompt,
     });
 
     return NextResponse.json({
