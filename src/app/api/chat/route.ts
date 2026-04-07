@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateResponse } from '@/lib/services/rag-service';
+// Retrieval constants are defined in src/lib/config/rag.ts for easy tuning.
+// Importing them here keeps the route aware of the active configuration and
+// makes them visible in route-level logging without touching the service layer.
+import { MAX_CHUNKS, MIN_SIMILARITY_THRESHOLD } from '@/lib/config/rag';
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +38,10 @@ export async function POST(request: NextRequest) {
       ...(showSources && result.sources ? { sources: result.sources } : {}),
     });
   } catch (error: any) {
-    console.error('Chat error:', error);
+    console.error(
+      `Chat error [MAX_CHUNKS=${MAX_CHUNKS}, MIN_SIMILARITY_THRESHOLD=${MIN_SIMILARITY_THRESHOLD}]:`,
+      error
+    );
     return NextResponse.json(
       { error: error.message || 'Failed to generate response' },
       { status: 500 }
