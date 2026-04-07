@@ -37,6 +37,8 @@ interface Source {
   /** Inline citation label matching the model's reply, e.g. "[Source 1]". */
   sourceLabel: string;
   filename: string;
+  /** Human-readable document title derived from the original filename. */
+  documentTitle?: string;
   chunkIndex: number;
   pageNumber: number;
   /** Short preview of the chunk used as a tooltip. */
@@ -592,7 +594,9 @@ function MessageBubble({
                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0 font-mono">
                   {src.sourceLabel ?? `[Source ${i + 1}]`}
                 </Badge>
-                <span className="truncate max-w-[120px]">{src.filename}</span>
+                <span className="truncate max-w-[120px]" title={src.documentTitle || src.filename}>
+                  {src.documentTitle || src.filename}
+                </span>
                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0">
                   p.{src.pageNumber}
                 </Badge>

@@ -69,13 +69,18 @@ export async function PUT(request: NextRequest) {
       create: { id: 1, cloneName: cloneName || 'My Second Self' },
     });
 
-    // Build update data, only including provided fields
+    // Build update data, only including provided fields.
+    // openaiApiKey === null explicitly clears the stored server key.
+    // openaiApiKey === undefined means the field was not sent (no change).
     const updateData: Record<string, any> = {};
     if (cloneName !== undefined) updateData.cloneName = cloneName;
     if (systemPrompt !== undefined) updateData.systemPrompt = systemPrompt;
     if (tone !== undefined) updateData.tone = tone;
     if (responseLength !== undefined) updateData.responseLength = responseLength;
-    if (openaiApiKey !== undefined) updateData.openaiApiKeyEncrypted = openaiApiKey;
+    if (openaiApiKey !== undefined) {
+      // null clears the key; any string value sets it
+      updateData.openaiApiKeyEncrypted = openaiApiKey ?? null;
+    }
 
     const settings = await prisma.settings.upsert({
       where: { ownerId: 1 },

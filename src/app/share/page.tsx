@@ -138,6 +138,8 @@ export default function SharePage() {
       setNewlyCreatedId(newLink.id);
       // Auto-copy the URL (best-effort)
       copyToClipboard(created.token, created.id);
+      // Clear the "new" highlight after 10 seconds
+      setTimeout(() => setNewlyCreatedId(null), 10_000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to generate share link.');
     } finally {

@@ -103,16 +103,19 @@ export default function SettingsPage() {
     setSaving(true);
     setSaveMessage(null);
     try {
-      const payload: Record<string, string> = {
+      const payload: Record<string, string | null> = {
         cloneName,
         tone,
         responseLength,
         systemPrompt,
       };
 
-      // Include the API key for server-side storage when the option is enabled
       if (storeKeyOnServer && apiKey) {
+        // Store the key on the server
         payload.openaiApiKey = apiKey;
+      } else if (!storeKeyOnServer && serverKeyMasked) {
+        // User unchecked the box and there was a key — clear it from the server
+        payload.openaiApiKey = null;
       }
 
       await apiFetch('/api/settings', {
@@ -127,7 +130,11 @@ export default function SettingsPage() {
             ? `${apiKey.slice(0, 5)}..${apiKey.slice(-4)}`
             : '••••••••';
         setServerKeyMasked(masked);
+      } else if (!storeKeyOnServer) {
+        // Cleared from server
+        setServerKeyMasked(null);
       }
+
       setSaveMessage({ type: 'success', text: 'Settings saved successfully.' });
       setTimeout(() => setSaveMessage(null), 4000);
     } catch (err: unknown) {
@@ -189,7 +196,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-3xl font-bold text-black">Settings</h1>
         <p className="mt-1 text-gray-500">
-          Configure your digital clone's behavior and preferences.
+          Configure your digital clone&apos;s behavior and preferences.
         </p>
       </div>
 
@@ -216,8 +223,9 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">OpenAI API Key</CardTitle>
           <CardDescription>
-            Your key is stored in your browser's localStorage and sent with each request.
-            Optionally, you can also store it on the server to enable public clone access.
+            Your key is stored in your browser&apos;s localStorage and sent with each request.
+            Optionally, store it on the server to enable public clone access without requiring
+            visitors to supply their own key.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -256,7 +264,7 @@ export default function SettingsPage() {
             </Button>
           </div>
           {testMessage && (
-            <p className="text-sm text-black">
+            <p className={`text-sm ${testStatus === 'error' ? 'text-red-600' : 'text-black'}`}>
               {testMessage}
             </p>
           )}
@@ -275,13 +283,13 @@ export default function SettingsPage() {
               </span>
             </label>
             <p className="text-xs text-gray-500">
-              When enabled, your API key will be saved on the server so that visitors can chat with
+              When enabled, your API key will be saved on the server so visitors can chat with
               your public clone without needing their own key. The key is sent when you click
-              &quot;Save Settings&quot;.
+              &quot;Save Settings&quot;. Uncheck and save to remove the server-stored key.
             </p>
-            {serverKeyMasked && (
+            {serverKeyMasked && storeKeyOnServer && (
               <p className="text-xs text-gray-500">
-                Server key: <code className="text-black">{serverKeyMasked}</code>
+                Currently stored: <code className="text-black font-mono">{serverKeyMasked}</code>
               </p>
             )}
           </div>
@@ -316,7 +324,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Response Length</CardTitle>
           <CardDescription>
-            Controls how verbose your clone's answers are.
+            Controls how verbose your clone&apos;s answers are.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -339,15 +347,16 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">System Prompt</CardTitle>
           <CardDescription>
-            Custom instructions prepended to every conversation. Use this to define your clone's
-            personality and constraints.
+            Additional style and tone instructions appended to every conversation. The core
+            persona rules (first-person identity and knowledge-base grounding) are always
+            enforced and cannot be overridden here.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="You are a helpful assistant that answers questions based on the provided knowledge base..."
+            placeholder="Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic."
             rows={6}
             className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black resize-y min-h-[120px]"
           />
@@ -365,7 +374,7 @@ export default function SettingsPage() {
           Save Settings
         </Button>
         {saveMessage && (
-          <p className="text-sm text-black">
+          <p className={`text-sm ${saveMessage.type === 'error' ? 'text-red-600' : 'text-black'}`}>
             {saveMessage.text}
           </p>
         )}

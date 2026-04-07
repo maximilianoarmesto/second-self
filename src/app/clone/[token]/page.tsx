@@ -55,7 +55,7 @@ export default function PublicClonePage() {
         if (res.ok) {
           const data = await res.json();
           setValid(true);
-          setCloneName(data.cloneName ?? 'Anonymous');
+          setCloneName(data.cloneName || 'Anonymous');
         } else {
           setValid(false);
         }
