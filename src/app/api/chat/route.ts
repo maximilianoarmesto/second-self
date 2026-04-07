@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateResponse } from '@/lib/services/rag-service';
 // Retrieval constants are defined in src/lib/config/rag.ts for easy tuning.
-// Importing them here keeps the route aware of the active configuration and
-// makes them visible in route-level logging without touching the service layer.
+// Importing them here makes the active configuration visible in route-level
+// request logs so operators can confirm the live values without needing to
+// inspect the service layer or trigger an error.
 import { MAX_CHUNKS, MIN_SIMILARITY_THRESHOLD } from '@/lib/config/rag';
 
 export async function POST(request: NextRequest) {
@@ -25,6 +26,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Log active retrieval config on every request so operators can confirm
+    // the live values (MAX_CHUNKS, MIN_SIMILARITY_THRESHOLD) without needing
+    // to inspect source code or wait for an error to occur.
+    console.info(
+      `[chat route] POST /api/chat — ` +
+        `MAX_CHUNKS: ${MAX_CHUNKS}, MIN_SIMILARITY_THRESHOLD: ${MIN_SIMILARITY_THRESHOLD}`
+    );
+
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
@@ -39,7 +48,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error(
-      `Chat error [MAX_CHUNKS=${MAX_CHUNKS}, MIN_SIMILARITY_THRESHOLD=${MIN_SIMILARITY_THRESHOLD}]:`,
+      `[chat route] error [MAX_CHUNKS=${MAX_CHUNKS}, MIN_SIMILARITY_THRESHOLD=${MIN_SIMILARITY_THRESHOLD}]:`,
       error
     );
     return NextResponse.json(
