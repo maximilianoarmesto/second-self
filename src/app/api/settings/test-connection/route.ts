@@ -5,10 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const apiKey = request.headers.get('x-openai-api-key');
     if (!apiKey) {
-      return NextResponse.json(
-        { error: 'OpenAI API key is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'OpenAI API key is required' }, { status: 400 });
     }
 
     const openai = new OpenAI({ apiKey });

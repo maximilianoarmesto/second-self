@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     // Map to the API shape: replace fileData with the boolean canReprocess
     // so the raw binary blob is never sent over the wire.
-    const payload = documents.map(({ fileData, ...doc }: { fileData: Buffer | null; [key: string]: unknown }) => ({
+    const payload = documents.map(({ fileData, ...doc }) => ({
       ...doc,
       canReprocess: fileData !== null,
     }));

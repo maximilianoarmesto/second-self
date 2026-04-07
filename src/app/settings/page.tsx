@@ -1,23 +1,10 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import {
-  Eye,
-  EyeOff,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Save,
-} from 'lucide-react';
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
@@ -55,7 +42,10 @@ const RESPONSE_LENGTH_OPTIONS = [
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [saveMessage, setSaveMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Form state
   const [cloneName, setCloneName] = useState('');
@@ -123,9 +113,7 @@ export default function SettingsPage() {
       if (storeKeyOnServer && apiKey) {
         // Update masked display after saving
         const masked =
-          apiKey.length > 8
-            ? `${apiKey.slice(0, 5)}..${apiKey.slice(-4)}`
-            : '••••••••';
+          apiKey.length > 8 ? `${apiKey.slice(0, 5)}..${apiKey.slice(-4)}` : '••••••••';
         setServerKeyMasked(masked);
       }
       setSaveMessage({ type: 'success', text: 'Settings saved successfully.' });
@@ -189,7 +177,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-3xl font-bold text-black">Settings</h1>
         <p className="mt-1 text-gray-500">
-          Configure your digital clone's behavior and preferences.
+          Configure your digital clone&apos;s behavior and preferences.
         </p>
       </div>
 
@@ -216,7 +204,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">OpenAI API Key</CardTitle>
           <CardDescription>
-            Your key is stored in your browser's localStorage and sent with each request.
+            Your key is stored in your browser&apos;s localStorage and sent with each request.
             Optionally, you can also store it on the server to enable public clone access.
           </CardDescription>
         </CardHeader>
@@ -255,11 +243,7 @@ export default function SettingsPage() {
               Test Connection
             </Button>
           </div>
-          {testMessage && (
-            <p className="text-sm text-black">
-              {testMessage}
-            </p>
-          )}
+          {testMessage && <p className="text-sm text-black">{testMessage}</p>}
 
           {/* Store key on server option */}
           <div className="border border-gray-200 rounded-lg p-4 space-y-2 max-w-lg">
@@ -315,9 +299,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Response Length</CardTitle>
-          <CardDescription>
-            Controls how verbose your clone's answers are.
-          </CardDescription>
+          <CardDescription>Controls how verbose your clone&apos;s answers are.</CardDescription>
         </CardHeader>
         <CardContent>
           <select
@@ -337,17 +319,19 @@ export default function SettingsPage() {
       {/* System Prompt */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">System Prompt</CardTitle>
+          <CardTitle className="text-base">Additional Persona Instructions</CardTitle>
           <CardDescription>
-            Custom instructions prepended to every conversation. Use this to define your clone's
-            personality and constraints.
+            Optional extra instructions appended after the built-in first-person identity rules. Use
+            this to add biographical details, tone notes, or style preferences for your clone. The
+            core rules (always speak as {cloneName || 'your clone name'}, only use the knowledge
+            base, never hallucinate) are always enforced regardless of what you write here.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="You are a helpful assistant that answers questions based on the provided knowledge base..."
+            placeholder={`e.g. I prefer to answer concisely. I grew up in San Francisco. I'm passionate about renewable energy.`}
             rows={6}
             className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black resize-y min-h-[120px]"
           />
@@ -357,18 +341,10 @@ export default function SettingsPage() {
       {/* Save button */}
       <div className="flex items-center gap-4">
         <Button onClick={handleSave} disabled={saving} className="gap-2">
-          {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Save Settings
         </Button>
-        {saveMessage && (
-          <p className="text-sm text-black">
-            {saveMessage.text}
-          </p>
-        )}
+        {saveMessage && <p className="text-sm text-black">{saveMessage.text}</p>}
       </div>
     </div>
   );

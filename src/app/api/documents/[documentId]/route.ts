@@ -160,9 +160,6 @@ export async function POST(
     return NextResponse.json(updated, { status: 202 });
   } catch (error: any) {
     console.error('Re-process error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Re-processing failed' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message || 'Re-processing failed' }, { status: 500 });
   }
 }

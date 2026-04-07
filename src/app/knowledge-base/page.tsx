@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle,
@@ -14,13 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
 import { apiFetch } from '@/lib/api';
 import type { DocumentDetail, DocumentSummary, ReprocessResponse } from '@/types/document';
@@ -45,6 +39,9 @@ function formatDate(iso: string): string {
   });
 }
 
+/** Poll every 5 seconds when there are in-flight documents. */
+const POLL_INTERVAL_MS = 5000;
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -61,25 +58,55 @@ export default function KnowledgeBasePage() {
   const [reprocessingId, setReprocessingId] = useState<number | null>(null);
   const [reprocessError, setReprocessError] = useState<string | null>(null);
 
-  // ---- Fetch list ----
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchDocuments = useCallback(async () => {
-    setIsLoading(true);
+  // ---- Fetch list (silent = don't show spinner on background polls) ----
+
+  const fetchDocuments = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const data = await apiFetch<DocumentSummary[]>('/api/documents');
       setDocuments(data);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to load documents. Please try again.';
-      setError(message);
+      const message =
+        err instanceof Error ? err.message : 'Failed to load documents. Please try again.';
+      if (!silent) setError(message);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
+
+  // ---- Auto-poll while any document is PENDING or PROCESSING ----
+
+  useEffect(() => {
+    const hasPending = documents.some((d) => d.status === 'PENDING' || d.status === 'PROCESSING');
+
+    if (hasPending) {
+      pollTimerRef.current = setTimeout(() => {
+        fetchDocuments(true);
+        // Invalidate detail cache for in-progress docs so chunks refresh too
+        setDetailMap((prev) => {
+          const next = { ...prev };
+          documents
+            .filter((d) => d.status === 'PENDING' || d.status === 'PROCESSING')
+            .forEach((d) => delete next[d.id]);
+          return next;
+        });
+      }, POLL_INTERVAL_MS);
+    }
+
+    return () => {
+      if (pollTimerRef.current !== null) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [documents, fetchDocuments]);
 
   // ---- Expand / detail ----
 
@@ -116,10 +143,10 @@ export default function KnowledgeBasePage() {
       // Optimistically mark as PENDING in the list so the user sees feedback
       setDocuments((prev) =>
         prev.map((d) =>
-          d.id === docId ? { ...d, status: 'PENDING', errorMessage: null } : d
+          d.id === docId ? { ...d, status: 'PENDING' as const, errorMessage: null } : d
         )
       );
-      // Invalidate any cached detail for this document so it reloads fresh
+      // Invalidate cached detail for this document so it reloads fresh
       setDetailMap((prev) => {
         const next = { ...prev };
         delete next[docId];
@@ -156,6 +183,10 @@ export default function KnowledgeBasePage() {
     }
   };
 
+  // ---- Derived ----
+
+  const hasPendingDocs = documents.some((d) => d.status === 'PENDING' || d.status === 'PROCESSING');
+
   // ---- Render ----
 
   return (
@@ -172,7 +203,7 @@ export default function KnowledgeBasePage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchDocuments}
+            onClick={() => fetchDocuments()}
             disabled={isLoading}
             className="gap-2"
           >
@@ -188,6 +219,14 @@ export default function KnowledgeBasePage() {
         </div>
       </div>
 
+      {/* Auto-poll notice */}
+      {hasPendingDocs && !isLoading && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-600">
+          <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+          <span>Processing in progress — status updates automatically every few seconds.</span>
+        </div>
+      )}
+
       {/* Global error */}
       {(error || reprocessError) && (
         <div className="mb-6 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-black">
@@ -197,7 +236,10 @@ export default function KnowledgeBasePage() {
             <p className="mt-0.5">{error ?? reprocessError}</p>
           </div>
           <button
-            onClick={() => { setError(null); setReprocessError(null); }}
+            onClick={() => {
+              setError(null);
+              setReprocessError(null);
+            }}
             className="ml-auto flex-shrink-0 text-gray-500 hover:text-black"
             aria-label="Dismiss error"
           >
@@ -240,12 +282,26 @@ export default function KnowledgeBasePage() {
         <div className="space-y-3">
           {/* Stats bar */}
           <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-2">
-            <span>{documents.length} document{documents.length !== 1 ? 's' : ''}</span>
+            <span>
+              {documents.length} document{documents.length !== 1 ? 's' : ''}
+            </span>
             {[
-              { label: 'completed', count: documents.filter((d) => d.status === 'COMPLETED').length },
-              { label: 'processing', count: documents.filter((d) => d.status === 'PROCESSING').length },
-              { label: 'pending', count: documents.filter((d) => d.status === 'PENDING').length },
-              { label: 'failed', count: documents.filter((d) => d.status === 'FAILED').length },
+              {
+                label: 'completed',
+                count: documents.filter((d) => d.status === 'COMPLETED').length,
+              },
+              {
+                label: 'processing',
+                count: documents.filter((d) => d.status === 'PROCESSING').length,
+              },
+              {
+                label: 'pending',
+                count: documents.filter((d) => d.status === 'PENDING').length,
+              },
+              {
+                label: 'failed',
+                count: documents.filter((d) => d.status === 'FAILED').length,
+              },
             ]
               .filter((s) => s.count > 0)
               .map((s) => (
@@ -327,11 +383,7 @@ function DocumentRow({
       >
         {/* Expand chevron */}
         <span className="flex-shrink-0 text-gray-400">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </span>
 
         {/* File icon */}
@@ -343,7 +395,9 @@ function DocumentRow({
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
             <span>{formatFileSize(doc.fileSize)}</span>
             {doc.pageCount != null && (
-              <span>{doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''}</span>
+              <span>
+                {doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''}
+              </span>
             )}
             <span>{formatDate(doc.createdAt)}</span>
           </div>
@@ -355,10 +409,7 @@ function DocumentRow({
         </div>
 
         {/* Action controls */}
-        <div
-          className="flex-shrink-0 flex items-center gap-2"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="flex-shrink-0 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           {isConfirmingDelete ? (
             <>
               <span className="text-xs text-black font-medium">Delete?</span>
@@ -463,8 +514,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-black">
-          Extracted chunks{' '}
-          <span className="font-normal text-gray-500">({chunks.length})</span>
+          Extracted chunks <span className="font-normal text-gray-500">({chunks.length})</span>
         </h3>
       </div>
 
@@ -499,9 +549,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
               onClick={() => setShowAll((s) => !s)}
               className="mt-1 text-xs text-black underline-offset-4 hover:underline"
             >
-              {showAll
-                ? 'Show less'
-                : `Show all ${chunks.length} chunks`}
+              {showAll ? 'Show less' : `Show all ${chunks.length} chunks`}
             </button>
           )}
         </div>

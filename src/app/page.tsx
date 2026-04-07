@@ -13,13 +13,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
 import { apiFetch } from '@/lib/api';
@@ -119,7 +113,9 @@ export default function DashboardPage() {
       }
     }
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -129,9 +125,7 @@ export default function DashboardPage() {
         <h1 className="text-3xl font-bold text-black">
           {data?.cloneName ? `${data.cloneName}'s Dashboard` : 'Dashboard'}
         </h1>
-        <p className="mt-1 text-gray-500">
-          Overview of your digital clone and knowledge base.
-        </p>
+        <p className="mt-1 text-gray-500">Overview of your digital clone and knowledge base.</p>
       </div>
 
       {/* Error */}
@@ -152,15 +146,11 @@ export default function DashboardPage() {
               return (
                 <Card key={stat.key}>
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardDescription className="text-sm font-medium">
-                      {stat.label}
-                    </CardDescription>
+                    <CardDescription className="text-sm font-medium">{stat.label}</CardDescription>
                     <Icon className="w-4 h-4 text-gray-500" />
                   </CardHeader>
                   <CardContent>
-                    <p className="text-2xl font-bold text-black">
-                      {data ? data[stat.key] : 0}
-                    </p>
+                    <p className="text-2xl font-bold text-black">{data ? data[stat.key] : 0}</p>
                   </CardContent>
                 </Card>
               );
@@ -276,9 +266,7 @@ export default function DashboardPage() {
                   >
                     <MessageCircle className="w-4 h-4 text-gray-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-black truncate">
-                        {session.title}
-                      </p>
+                      <p className="text-sm font-medium text-black truncate">{session.title}</p>
                       <p className="text-xs text-gray-500">
                         {new Date(session.created_at).toLocaleDateString()}
                       </p>

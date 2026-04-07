@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-const DEFAULT_SYSTEM_PROMPT =
-  'You are the user\'s Second Self. Speak in first person as if you are the user. ' +
-  'Infer tone, style, and manner of expression from the provided knowledge base context. ' +
-  'Be natural, personal, and human. Do not sound robotic. Only make claims supported by ' +
-  'the retrieved knowledge. If something is unknown or unsupported, say so honestly and ' +
-  'naturally. Do not mention that you are an AI unless explicitly asked.';
+// The core first-person persona rules are always injected by buildSystemPrompt()
+// in the RAG service. The DEFAULT_SYSTEM_PROMPT stored here serves as
+// *additional* persona instructions (e.g. tone, style notes, biographical
+// details) that are appended after those rules.
+// Keeping it empty by default lets users start fresh and add their own notes.
+const DEFAULT_SYSTEM_PROMPT = '';
 
 export async function GET() {
   try {

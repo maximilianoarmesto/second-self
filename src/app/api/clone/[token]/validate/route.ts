@@ -27,10 +27,7 @@ export async function GET(
     });
 
     if (!link || !link.isActive) {
-      return NextResponse.json(
-        { error: 'Invalid or expired link' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 });
     }
 
     const cloneName = link.owner.settings?.cloneName || link.owner.cloneName;

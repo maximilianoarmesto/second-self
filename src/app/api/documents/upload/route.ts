@@ -19,18 +19,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      return NextResponse.json(
-        { error: 'Only PDF files are accepted' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Only PDF files are accepted' }, { status: 400 });
     }
 
     const MAX_SIZE = 50 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      return NextResponse.json(
-        { error: 'File size exceeds 50MB limit' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'File size exceeds 50MB limit' }, { status: 400 });
     }
 
     const filename = `${Date.now()}-${file.name}`;
@@ -53,9 +47,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(document, { status: 201 });
   } catch (error: any) {
     console.error('Upload error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Upload failed' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 });
   }
 }
