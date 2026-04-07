@@ -43,6 +43,9 @@ model Document {
   pageCount        Int?           @map("page_count")
   status           DocumentStatus @default(PENDING)
   errorMessage     String?        @map("error_message")
+  /// Raw PDF bytes retained so the document can be re-processed with an
+  /// updated chunking strategy without requiring a new upload.
+  fileData         Bytes?         @map("file_data")
   ownerId          Int            @map("owner_id")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
@@ -54,13 +57,17 @@ model Document {
 }
 
 model DocumentChunk {
-  id         Int                          @id @default(autoincrement())
-  documentId Int                          @map("document_id")
-  chunkIndex Int                          @map("chunk_index")
-  pageNumber Int                          @map("page_number")
-  content    String
-  embedding  Unsupported("vector(1536)")?
-  createdAt  DateTime                     @default(now()) @map("created_at")
+  id            Int                          @id @default(autoincrement())
+  documentId    Int                          @map("document_id")
+  chunkIndex    Int                          @map("chunk_index")
+  pageNumber    Int                          @map("page_number")
+  /// Human-readable document title (original filename) stored directly on the
+  /// chunk so retrieval queries can surface rich source citations without an
+  /// extra join.
+  documentTitle String                       @default("") @map("document_title")
+  content       String
+  embedding     Unsupported("vector(1536)")?
+  createdAt     DateTime                     @default(now()) @map("created_at")
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

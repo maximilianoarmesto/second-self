@@ -12,9 +12,31 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       take: limit,
       skip: offset,
+      select: {
+        id: true,
+        filename: true,
+        originalFilename: true,
+        fileSize: true,
+        pageCount: true,
+        status: true,
+        errorMessage: true,
+        ownerId: true,
+        createdAt: true,
+        updatedAt: true,
+        // Select only whether fileData is present to derive canReprocess
+        // without sending the full binary payload over the wire.
+        fileData: true,
+      },
     });
 
-    return NextResponse.json(documents);
+    // Map to the API shape: replace fileData with the boolean canReprocess
+    // so the raw binary blob is never sent over the wire.
+    const payload = documents.map(({ fileData, ...doc }: { fileData: Buffer | null; [key: string]: unknown }) => ({
+      ...doc,
+      canReprocess: fileData !== null,
+    }));
+
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('Error listing documents:', error);
     return NextResponse.json(

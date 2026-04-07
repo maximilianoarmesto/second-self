@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 import { generateResponse } from '@/lib/services/rag-service';
 
 export async function POST(request: NextRequest) {
@@ -21,11 +22,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Load the owner's settings so the system prompt is personalised with the
+    // configured clone name and any custom prompt they have written.
+    const settings = await prisma.settings.findUnique({
+      where: { ownerId: 1 },
+      select: { cloneName: true, systemPrompt: true },
+    });
+
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
       apiKey,
       showSources: showSources ?? false,
+      cloneName: settings?.cloneName ?? 'My Second Self',
+      customSystemPrompt: settings?.systemPrompt ?? undefined,
     });
 
     return NextResponse.json({
