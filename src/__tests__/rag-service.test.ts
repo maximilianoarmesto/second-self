@@ -658,8 +658,7 @@ describe('Multi-turn conversation coherence', () => {
                   choices: [
                     {
                       message: {
-                        content:
-                          'I began my career at DataCorp in 2007 as a junior developer.',
+                        content: 'I began my career at DataCorp in 2007 as a junior developer.',
                       },
                     },
                   ],
@@ -822,7 +821,9 @@ describe('Context injection into OpenAI request', () => {
             create: jest.fn().mockImplementation(async (params: any) => {
               firstMessage = params.messages[0];
               return {
-                choices: [{ message: { content: 'I published research on event-driven systems.' } }],
+                choices: [
+                  { message: { content: 'I published research on event-driven systems.' } },
+                ],
               };
             }),
           },
@@ -863,9 +864,7 @@ describe('Context injection into OpenAI request', () => {
               const lastMsg = params.messages[params.messages.length - 1];
               capturedUserContent = lastMsg.content as string;
               return {
-                choices: [
-                  { message: { content: "I don't have information about that." } },
-                ],
+                choices: [{ message: { content: "I don't have information about that." } }],
               };
             }),
           },

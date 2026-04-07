@@ -74,9 +74,7 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
         </div>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

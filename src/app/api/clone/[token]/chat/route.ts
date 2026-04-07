@@ -28,20 +28,14 @@ export async function POST(
     });
 
     if (!link || !link.isActive) {
-      return NextResponse.json(
-        { error: 'Invalid or expired link' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 });
     }
 
     const body = await request.json();
     const { message, sessionId } = body;
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
     // Get API key: prefer stored key from settings, fall back to header
@@ -60,8 +54,7 @@ export async function POST(
     // Resolve the clone identity from the owner's settings. The settings row
     // is the single source of truth for both the display name and the custom
     // persona prompt.
-    const cloneName =
-      link.owner.settings?.cloneName ?? link.owner.cloneName ?? 'My Second Self';
+    const cloneName = link.owner.settings?.cloneName ?? link.owner.cloneName ?? 'My Second Self';
     const customSystemPrompt = link.owner.settings?.systemPrompt ?? undefined;
 
     const result = await generateResponse({

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   MessageCircle,
+  Pencil,
   Plus,
   Send,
   Eye,
@@ -10,12 +11,13 @@ import {
   FileText,
   Loader2,
   Trash2,
+  Check,
+  X,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
 
@@ -64,6 +66,12 @@ export default function ChatPage() {
   const [showSources, setShowSources] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Rename state
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -90,6 +98,13 @@ export default function ChatPage() {
     }
     loadSessions();
   }, []);
+
+  // Focus rename input when entering rename mode
+  useEffect(() => {
+    if (renamingId !== null) {
+      setTimeout(() => renameInputRef.current?.focus(), 0);
+    }
+  }, [renamingId]);
 
   // ---- Load messages for active session ----
   useEffect(() => {
@@ -122,12 +137,50 @@ export default function ChatPage() {
   const createNewSession = () => {
     setActiveSessionId(null);
     setMessages([]);
+    setRenamingId(null);
     inputRef.current?.focus();
   };
 
   // ---- Select session ----
   const selectSession = (id: number) => {
+    if (renamingId !== null) return; // don't navigate while renaming
     setActiveSessionId(id);
+  };
+
+  // ---- Start rename ----
+  const startRename = (id: number, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(id);
+    setRenameValue(currentTitle);
+  };
+
+  // ---- Confirm rename ----
+  const confirmRename = async (id: number) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      cancelRename();
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      const updated = await apiFetch<ChatSession>(`/api/chat/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: trimmed }),
+      });
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: updated.title } : s)));
+    } catch {
+      // silent — leave title as-is on failure
+    } finally {
+      setRenameSaving(false);
+      setRenamingId(null);
+      setRenameValue('');
+    }
+  };
+
+  // ---- Cancel rename ----
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
   };
 
   // ---- Delete session ----
@@ -176,7 +229,7 @@ export default function ChatPage() {
         body: JSON.stringify({ ...payload, showSources }),
       });
 
-      // If this was a new session, update session list
+      // If this was a new session, refresh session list to get the auto-generated title
       if (!activeSessionId && response.sessionId) {
         setActiveSessionId(response.sessionId);
         const updatedSessions = await apiFetch<ChatSession[]>('/api/chat/sessions');
@@ -256,19 +309,69 @@ export default function ChatPage() {
                     : 'text-black hover:bg-gray-100'
                 )}
               >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{session.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {new Date(session.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => deleteSession(session.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
-                  aria-label="Delete session"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {renamingId === session.id ? (
+                  // ---- Inline rename form ----
+                  <div
+                    className="flex-1 flex items-center gap-1 min-w-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      ref={renameInputRef}
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') confirmRename(session.id);
+                        if (e.key === 'Escape') cancelRename();
+                      }}
+                      className="flex-1 min-w-0 text-sm bg-white border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-black"
+                      aria-label="Rename session"
+                    />
+                    <button
+                      onClick={() => confirmRename(session.id)}
+                      disabled={renameSaving}
+                      className="flex-shrink-0 p-0.5 rounded text-gray-600 hover:text-black disabled:opacity-50"
+                      aria-label="Confirm rename"
+                    >
+                      {renameSaving ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <button
+                      onClick={cancelRename}
+                      disabled={renameSaving}
+                      className="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-black disabled:opacity-50"
+                      aria-label="Cancel rename"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  // ---- Normal session row ----
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{session.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {new Date(session.updatedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => startRename(session.id, session.title, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
+                      aria-label="Rename session"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => deleteSession(session.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
+                      aria-label="Delete session"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             ))
           )}
@@ -289,7 +392,7 @@ export default function ChatPage() {
             </button>
             <h2 className="text-sm font-semibold text-black">
               {activeSessionId
-                ? sessions.find((s) => s.id === activeSessionId)?.title ?? 'Chat'
+                ? (sessions.find((s) => s.id === activeSessionId)?.title ?? 'Chat')
                 : 'New Conversation'}
             </h2>
           </div>
@@ -297,9 +400,7 @@ export default function ChatPage() {
             onClick={() => setShowSources((v) => !v)}
             className={cn(
               'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors',
-              showSources
-                ? 'text-black bg-gray-100'
-                : 'text-gray-500 hover:bg-gray-100'
+              showSources ? 'text-black bg-gray-100' : 'text-gray-500 hover:bg-gray-100'
             )}
           >
             {showSources ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -325,11 +426,7 @@ export default function ChatPage() {
           ) : (
             <div className="max-w-3xl mx-auto space-y-6">
               {messages.map((msg) => (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  showSources={showSources}
-                />
+                <MessageBubble key={msg.id} message={msg} showSources={showSources} />
               ))}
               {isLoading && <TypingIndicator />}
               <div ref={messagesEndRef} />
@@ -368,13 +465,7 @@ export default function ChatPage() {
 // MessageBubble
 // ---------------------------------------------------------------------------
 
-function MessageBubble({
-  message,
-  showSources,
-}: {
-  message: ChatMessage;
-  showSources: boolean;
-}) {
+function MessageBubble({ message, showSources }: { message: ChatMessage; showSources: boolean }) {
   const isUser = message.role === 'user';
 
   return (
@@ -383,9 +474,7 @@ function MessageBubble({
       <div
         className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
-          isUser
-            ? 'bg-black text-white'
-            : 'bg-gray-100 text-gray-900'
+          isUser ? 'bg-black text-white' : 'bg-gray-100 text-gray-900'
         )}
       >
         {isUser ? 'Y' : 'SS'}
@@ -396,9 +485,7 @@ function MessageBubble({
         <div
           className={cn(
             'inline-block rounded-2xl px-4 py-2.5 text-sm text-left',
-            isUser
-              ? 'bg-black text-white rounded-tr-md'
-              : 'bg-gray-100 text-gray-900 rounded-tl-md'
+            isUser ? 'bg-black text-white rounded-tr-md' : 'bg-gray-100 text-gray-900 rounded-tl-md'
           )}
         >
           {isUser ? (
@@ -420,8 +507,10 @@ function MessageBubble({
                 className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500"
               >
                 <FileText className="w-3 h-3 flex-shrink-0" />
-                {/* Citation label — matches [Source N] used inline in the reply */}
-                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0 font-mono">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1 py-0 h-4 flex-shrink-0 font-mono"
+                >
                   {src.sourceLabel ?? `[Source ${i + 1}]`}
                 </Badge>
                 <span className="truncate max-w-[120px]">{src.filename}</span>
@@ -452,9 +541,18 @@ function TypingIndicator() {
       </div>
       <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
         <div className="flex space-x-1.5">
-          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+          <span
+            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+            style={{ animationDelay: '0ms' }}
+          />
+          <span
+            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+            style={{ animationDelay: '150ms' }}
+          />
+          <span
+            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
+            style={{ animationDelay: '300ms' }}
+          />
         </div>
       </div>
     </div>

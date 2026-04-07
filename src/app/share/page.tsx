@@ -260,9 +260,7 @@ export default function SharePage() {
                     <div className="flex justify-end">
                       {isConfirmingRevoke ? (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-black font-medium">
-                            Revoke this link?
-                          </span>
+                          <span className="text-xs text-black font-medium">Revoke this link?</span>
                           <Button
                             variant="destructive"
                             size="sm"

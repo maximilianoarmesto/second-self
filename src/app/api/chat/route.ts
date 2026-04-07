@@ -16,10 +16,7 @@ export async function POST(request: NextRequest) {
     const { message, sessionId, showSources } = body;
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
     // Load the owner's settings so the system prompt is personalised with the
