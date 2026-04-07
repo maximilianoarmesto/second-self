@@ -57,11 +57,23 @@ export async function POST(
       );
     }
 
+    // Resolve the clone name and custom prompt from the owner's settings so
+    // the public chat route uses the same persona as the private chat route.
+    // Prefer settings-level cloneName; fall back to the Owner record value.
+    const ownerSettings = link.owner.settings;
+    const cloneName = ownerSettings?.cloneName || link.owner.cloneName;
+    // Pass the operator-supplied system prompt as the custom-prompt extension.
+    // buildSystemPrompt() in rag-service appends it after the strict
+    // first-person base rules, so persona constraints are always enforced.
+    const customPrompt = ownerSettings?.systemPrompt ?? null;
+
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
       apiKey,
       showSources: false,
+      cloneName,
+      customPrompt,
     });
 
     return NextResponse.json({

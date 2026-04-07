@@ -24,7 +24,7 @@ model Settings {
   id                    Int      @id @default(autoincrement())
   ownerId               Int      @unique @map("owner_id")
   cloneName             String   @default("My Second Self") @map("clone_name")
-  systemPrompt          String   @default("You are the user's Second Self. Speak in first person as if you are the user. Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic. Only make claims supported by the retrieved knowledge. If something is unknown or unsupported, say so honestly and naturally. Do not mention that you are an AI unless explicitly asked.") @map("system_prompt")
+  systemPrompt          String   @default("Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic.") @map("system_prompt")
   tone                  String   @default("natural")
   responseLength        String   @default("balanced") @map("response_length")
   openaiApiKeyEncrypted String?  @map("openai_api_key_encrypted")

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// The default system prompt is stored in Settings as the operator-supplied
+// "custom prompt" extension.  The strict first-person persona rules (identity,
+// knowledge-base grounding, refusal to hallucinate) are always enforced by
+// buildSystemPrompt() in rag-service and cannot be overridden from here.
+// This value only controls *tone and style* — it is appended after the base
+// constraints, not instead of them.
 const DEFAULT_SYSTEM_PROMPT =
-  'You are the user\'s Second Self. Speak in first person as if you are the user. ' +
   'Infer tone, style, and manner of expression from the provided knowledge base context. ' +
-  'Be natural, personal, and human. Do not sound robotic. Only make claims supported by ' +
-  'the retrieved knowledge. If something is unknown or unsupported, say so honestly and ' +
-  'naturally. Do not mention that you are an AI unless explicitly asked.';
+  'Be natural, personal, and human. Do not sound robotic.';
 
 export async function GET() {
   try {
