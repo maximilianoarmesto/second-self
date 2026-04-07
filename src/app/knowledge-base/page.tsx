@@ -9,6 +9,7 @@ import {
   FileText,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/card';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
 import { apiFetch } from '@/lib/api';
-import type { DocumentDetail, DocumentSummary } from '@/types/document';
+import type { DocumentDetail, DocumentSummary, ReprocessResponse } from '@/types/document';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,6 +58,8 @@ export default function KnowledgeBasePage() {
   const [detailLoading, setDetailLoading] = useState<Record<number, boolean>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [reprocessingId, setReprocessingId] = useState<number | null>(null);
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
 
   // ---- Fetch list ----
 
@@ -98,6 +101,36 @@ export default function KnowledgeBasePage() {
       } finally {
         setDetailLoading((prev) => ({ ...prev, [docId]: false }));
       }
+    }
+  };
+
+  // ---- Re-process ----
+
+  const handleReprocess = async (docId: number) => {
+    setReprocessingId(docId);
+    setReprocessError(null);
+    try {
+      await apiFetch<ReprocessResponse>(`/api/documents/${docId}`, {
+        method: 'POST',
+      });
+      // Optimistically mark as PENDING in the list so the user sees feedback
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId ? { ...d, status: 'PENDING', errorMessage: null } : d
+        )
+      );
+      // Invalidate any cached detail for this document so it reloads fresh
+      setDetailMap((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Re-processing failed. Please try again.';
+      setReprocessError(message);
+    } finally {
+      setReprocessingId(null);
     }
   };
 
@@ -156,15 +189,15 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Global error */}
-      {error && (
+      {(error || reprocessError) && (
         <div className="mb-6 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-black">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
           <div>
             <p className="font-medium">Error</p>
-            <p className="mt-0.5">{error}</p>
+            <p className="mt-0.5">{error ?? reprocessError}</p>
           </div>
           <button
-            onClick={() => setError(null)}
+            onClick={() => { setError(null); setReprocessError(null); }}
             className="ml-auto flex-shrink-0 text-gray-500 hover:text-black"
             aria-label="Dismiss error"
           >
@@ -230,11 +263,13 @@ export default function KnowledgeBasePage() {
               detail={detailMap[doc.id] ?? null}
               isLoadingDetail={detailLoading[doc.id] ?? false}
               isDeleting={deletingId === doc.id}
+              isReprocessing={reprocessingId === doc.id}
               deleteConfirmId={deleteConfirm}
               onToggle={() => toggleExpand(doc.id)}
               onDeleteRequest={() => setDeleteConfirm(doc.id)}
               onDeleteConfirm={() => handleDelete(doc.id)}
               onDeleteCancel={() => setDeleteConfirm(null)}
+              onReprocess={() => handleReprocess(doc.id)}
             />
           ))}
         </div>
@@ -253,11 +288,13 @@ interface DocumentRowProps {
   detail: DocumentDetail | null;
   isLoadingDetail: boolean;
   isDeleting: boolean;
+  isReprocessing: boolean;
   deleteConfirmId: number | null;
   onToggle: () => void;
   onDeleteRequest: () => void;
   onDeleteConfirm: () => void;
   onDeleteCancel: () => void;
+  onReprocess: () => void;
 }
 
 function DocumentRow({
@@ -266,13 +303,16 @@ function DocumentRow({
   detail,
   isLoadingDetail,
   isDeleting,
+  isReprocessing,
   deleteConfirmId,
   onToggle,
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  onReprocess,
 }: DocumentRowProps) {
   const isConfirmingDelete = deleteConfirmId === doc.id;
+  const isBusy = isDeleting || isReprocessing;
 
   return (
     <Card className="overflow-hidden transition-shadow hover:shadow-md">
@@ -314,7 +354,7 @@ function DocumentRow({
           <DocumentStatusBadge status={doc.status} />
         </div>
 
-        {/* Delete controls */}
+        {/* Action controls */}
         <div
           className="flex-shrink-0 flex items-center gap-2"
           onClick={(e) => e.stopPropagation()}
@@ -326,7 +366,7 @@ function DocumentRow({
                 variant="destructive"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                disabled={isDeleting}
+                disabled={isBusy}
                 onClick={onDeleteConfirm}
               >
                 {isDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Yes'}
@@ -335,23 +375,43 @@ function DocumentRow({
                 variant="outline"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                disabled={isDeleting}
+                disabled={isBusy}
                 onClick={onDeleteCancel}
               >
                 No
               </Button>
             </>
           ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-gray-400 hover:text-black"
-              disabled={isDeleting}
-              onClick={onDeleteRequest}
-              aria-label="Delete document"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <>
+              {/* Re-process button — only shown when the document can be re-ingested */}
+              {doc.canReprocess && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-gray-400 hover:text-black"
+                  disabled={isBusy || doc.status === 'PROCESSING' || doc.status === 'PENDING'}
+                  onClick={onReprocess}
+                  title="Re-process document with updated chunking strategy"
+                  aria-label="Re-process document"
+                >
+                  {isReprocessing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-gray-400 hover:text-black"
+                disabled={isBusy}
+                onClick={onDeleteRequest}
+                aria-label="Delete document"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -417,10 +477,18 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
               key={chunk.id}
               className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-black"
             >
-              <div className="mb-1 flex items-center gap-2 text-gray-500">
+              <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-gray-500">
                 <span className="font-medium">Chunk {chunk.chunkIndex + 1}</span>
                 <span>&middot;</span>
                 <span>Page {chunk.pageNumber}</span>
+                {chunk.documentTitle && (
+                  <>
+                    <span>&middot;</span>
+                    <span className="truncate max-w-[200px]" title={chunk.documentTitle}>
+                      {chunk.documentTitle}
+                    </span>
+                  </>
+                )}
               </div>
               <p className="line-clamp-3 leading-relaxed">{chunk.content}</p>
             </div>
