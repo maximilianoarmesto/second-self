@@ -60,6 +60,15 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { cloneName, systemPrompt, tone, responseLength, openaiApiKey } = body;
 
+    // Ensure the owner row exists before upserting settings (the settings table
+    // has a foreign-key constraint on owner_id).  Using upsert here avoids a
+    // race condition where a concurrent GET already created the row.
+    await prisma.owner.upsert({
+      where: { id: 1 },
+      update: cloneName !== undefined ? { cloneName } : {},
+      create: { id: 1, cloneName: cloneName || 'My Second Self' },
+    });
+
     // Build update data, only including provided fields
     const updateData: Record<string, any> = {};
     if (cloneName !== undefined) updateData.cloneName = cloneName;
@@ -81,15 +90,17 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // If cloneName is provided, also update the Owner record
-    if (cloneName !== undefined) {
-      await prisma.owner.update({
-        where: { id: 1 },
-        data: { cloneName },
-      });
-    }
+    // Strip the raw API key from the response for security — the client only
+    // needs to know whether a key is stored (via the masked representation).
+    const { openaiApiKeyEncrypted, ...rest } = settings as any;
+    const maskedKey =
+      openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
+        ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
+        : openaiApiKeyEncrypted
+          ? '••••••••'
+          : null;
 
-    return NextResponse.json(settings);
+    return NextResponse.json({ ...rest, openaiApiKeyMasked: maskedKey });
   } catch (error: any) {
     console.error('Error updating settings:', error);
     return NextResponse.json(
