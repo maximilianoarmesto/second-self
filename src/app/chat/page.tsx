@@ -31,10 +31,15 @@ interface ChatSession {
 }
 
 interface Source {
+  /** Inline citation label matching the model's reply, e.g. "[Source 1]". */
+  sourceLabel: string;
   filename: string;
   chunkIndex: number;
   pageNumber: number;
+  /** Short preview of the chunk used as a tooltip. */
   content: string;
+  /** Cosine similarity score [0, 1]. */
+  similarity: number;
 }
 
 interface ChatMessage {
@@ -415,6 +420,10 @@ function MessageBubble({
                 className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500"
               >
                 <FileText className="w-3 h-3 flex-shrink-0" />
+                {/* Citation label — matches [Source N] used inline in the reply */}
+                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0 font-mono">
+                  {src.sourceLabel ?? `[Source ${i + 1}]`}
+                </Badge>
                 <span className="truncate max-w-[120px]">{src.filename}</span>
                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0">
                   p.{src.pageNumber}
