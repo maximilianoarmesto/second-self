@@ -57,11 +57,20 @@ export async function POST(
       );
     }
 
+    // Resolve the clone identity from the owner's settings. The settings row
+    // is the single source of truth for both the display name and the custom
+    // persona prompt.
+    const cloneName =
+      link.owner.settings?.cloneName ?? link.owner.cloneName ?? 'My Second Self';
+    const customSystemPrompt = link.owner.settings?.systemPrompt ?? undefined;
+
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
       apiKey,
       showSources: false,
+      cloneName,
+      customSystemPrompt,
     });
 
     return NextResponse.json({
