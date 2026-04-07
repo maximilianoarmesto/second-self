@@ -5,6 +5,8 @@ export interface DocumentChunk {
   documentId: number;
   chunkIndex: number;
   pageNumber: number;
+  /** Human-readable document title derived from the original filename. */
+  documentTitle: string;
   content: string;
   createdAt: string;
 }

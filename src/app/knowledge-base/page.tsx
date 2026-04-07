@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle,
@@ -9,6 +9,7 @@ import {
   FileText,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -21,7 +22,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getStoredApiKey } from '@/lib/api';
 import type { DocumentDetail, DocumentSummary } from '@/types/document';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,9 @@ export default function KnowledgeBasePage() {
   const [detailLoading, setDetailLoading] = useState<Record<number, boolean>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [reprocessingId, setReprocessingId] = useState<number | null>(null);
+  const reprocessInputRef = useRef<HTMLInputElement>(null);
+  const reprocessTargetId = useRef<number | null>(null);
 
   // ---- Fetch list ----
 
@@ -121,6 +125,66 @@ export default function KnowledgeBasePage() {
       setDeletingId(null);
       setDeleteConfirm(null);
     }
+  };
+
+  // ---- Re-process ----
+
+  /**
+   * Triggered when the user picks a replacement PDF from the hidden file input.
+   * Sends the file to `POST /api/documents/[documentId]` and refreshes the list.
+   */
+  const handleReprocessFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const docId = reprocessTargetId.current;
+    const file = e.target.files?.[0];
+    // Reset the input immediately so the same file can be re-selected later.
+    e.target.value = '';
+
+    if (!docId || !file) return;
+
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      setError('OpenAI API key is required. Please configure it in Settings.');
+      return;
+    }
+
+    setReprocessingId(docId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/documents/${docId}`, {
+        method: 'POST',
+        headers: { 'x-openai-api-key': apiKey },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error || `Re-processing failed (${response.status})`);
+      }
+
+      // Optimistically update status to PROCESSING in the list.
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === docId ? { ...d, status: 'PROCESSING' } : d))
+      );
+      // Invalidate cached detail so the expanded view refreshes on next open.
+      setDetailMap((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Re-processing failed. Please try again.';
+      setError(message);
+    } finally {
+      setReprocessingId(null);
+      reprocessTargetId.current = null;
+    }
+  };
+
+  const requestReprocess = (docId: number) => {
+    reprocessTargetId.current = docId;
+    reprocessInputRef.current?.click();
   };
 
   // ---- Render ----
@@ -202,6 +266,15 @@ export default function KnowledgeBasePage() {
         </Card>
       )}
 
+      {/* Hidden file input for re-processing — shared across all rows */}
+      <input
+        ref={reprocessInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        className="hidden"
+        onChange={handleReprocessFileChange}
+      />
+
       {/* Document list */}
       {!isLoading && documents.length > 0 && (
         <div className="space-y-3">
@@ -230,11 +303,13 @@ export default function KnowledgeBasePage() {
               detail={detailMap[doc.id] ?? null}
               isLoadingDetail={detailLoading[doc.id] ?? false}
               isDeleting={deletingId === doc.id}
+              isReprocessing={reprocessingId === doc.id}
               deleteConfirmId={deleteConfirm}
               onToggle={() => toggleExpand(doc.id)}
               onDeleteRequest={() => setDeleteConfirm(doc.id)}
               onDeleteConfirm={() => handleDelete(doc.id)}
               onDeleteCancel={() => setDeleteConfirm(null)}
+              onReprocess={() => requestReprocess(doc.id)}
             />
           ))}
         </div>
@@ -253,11 +328,13 @@ interface DocumentRowProps {
   detail: DocumentDetail | null;
   isLoadingDetail: boolean;
   isDeleting: boolean;
+  isReprocessing: boolean;
   deleteConfirmId: number | null;
   onToggle: () => void;
   onDeleteRequest: () => void;
   onDeleteConfirm: () => void;
   onDeleteCancel: () => void;
+  onReprocess: () => void;
 }
 
 function DocumentRow({
@@ -266,13 +343,16 @@ function DocumentRow({
   detail,
   isLoadingDetail,
   isDeleting,
+  isReprocessing,
   deleteConfirmId,
   onToggle,
   onDeleteRequest,
   onDeleteConfirm,
   onDeleteCancel,
+  onReprocess,
 }: DocumentRowProps) {
   const isConfirmingDelete = deleteConfirmId === doc.id;
+  const isBusy = isDeleting || isReprocessing || doc.status === 'PROCESSING';
 
   return (
     <Card className="overflow-hidden transition-shadow hover:shadow-md">
@@ -314,7 +394,7 @@ function DocumentRow({
           <DocumentStatusBadge status={doc.status} />
         </div>
 
-        {/* Delete controls */}
+        {/* Action controls (re-process + delete) */}
         <div
           className="flex-shrink-0 flex items-center gap-2"
           onClick={(e) => e.stopPropagation()}
@@ -342,16 +422,36 @@ function DocumentRow({
               </Button>
             </>
           ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-gray-400 hover:text-black"
-              disabled={isDeleting}
-              onClick={onDeleteRequest}
-              aria-label="Delete document"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <>
+              {/* Re-process button — available for COMPLETED and FAILED docs */}
+              {(doc.status === 'COMPLETED' || doc.status === 'FAILED') && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-gray-400 hover:text-black"
+                  disabled={isBusy}
+                  onClick={onReprocess}
+                  aria-label="Re-process document"
+                  title="Re-process: upload the PDF again to re-chunk with the latest settings"
+                >
+                  {isReprocessing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-gray-400 hover:text-black"
+                disabled={isBusy}
+                onClick={onDeleteRequest}
+                aria-label="Delete document"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -421,6 +521,14 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
                 <span className="font-medium">Chunk {chunk.chunkIndex + 1}</span>
                 <span>&middot;</span>
                 <span>Page {chunk.pageNumber}</span>
+                {chunk.documentTitle && (
+                  <>
+                    <span>&middot;</span>
+                    <span className="truncate max-w-[160px]" title={chunk.documentTitle}>
+                      {chunk.documentTitle}
+                    </span>
+                  </>
+                )}
               </div>
               <p className="line-clamp-3 leading-relaxed">{chunk.content}</p>
             </div>

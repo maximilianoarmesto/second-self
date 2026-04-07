@@ -54,13 +54,14 @@ model Document {
 }
 
 model DocumentChunk {
-  id         Int                          @id @default(autoincrement())
-  documentId Int                          @map("document_id")
-  chunkIndex Int                          @map("chunk_index")
-  pageNumber Int                          @map("page_number")
-  content    String
-  embedding  Unsupported("vector(1536)")?
-  createdAt  DateTime                     @default(now()) @map("created_at")
+  id            Int                          @id @default(autoincrement())
+  documentId    Int                          @map("document_id")
+  chunkIndex    Int                          @map("chunk_index")
+  pageNumber    Int                          @map("page_number")
+  documentTitle String                       @default("") @map("document_title")
+  content       String
+  embedding     Unsupported("vector(1536)")?
+  createdAt     DateTime                     @default(now()) @map("created_at")
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
