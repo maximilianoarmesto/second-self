@@ -326,8 +326,16 @@ describe('sanitiseResponse', () => {
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
-  it('returns REFUSAL_PHRASE when the response contains "As an AI"', () => {
+  it('returns REFUSAL_PHRASE when the response contains "As an AI," (identity statement with comma)', () => {
+    // "As an AI, I have no feelings." — standalone AI identity declaration.
+    // The comma after "AI" distinguishes this from job-title phrases like
+    // "As an AI researcher, I published…" which are legitimate human statements.
     const dirty = 'As an AI, I have no feelings.';
+    assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
+  });
+
+  it('returns REFUSAL_PHRASE when the response contains "as an AI," (lowercase, identity statement)', () => {
+    const dirty = 'Well, as an AI, I lack real experiences.';
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
@@ -346,8 +354,17 @@ describe('sanitiseResponse', () => {
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
-  it('returns REFUSAL_PHRASE when the response contains "I was trained"', () => {
+  it('returns REFUSAL_PHRASE when the response contains "I was trained on" (AI dataset phrase)', () => {
+    // "I was trained on" is the AI-specific form (refers to training datasets).
+    // Legitimate human phrases like "I was trained at Google" or "I was trained
+    // in martial arts" do NOT contain "on" immediately after "trained" and are
+    // NOT caught by this narrowed form — see false-positive tests below.
     const dirty = 'I was trained on data up to early 2024.';
+    assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
+  });
+
+  it('returns REFUSAL_PHRASE when the response contains "I was trained by OpenAI"', () => {
+    const dirty = 'I was trained by OpenAI to assist users.';
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
@@ -391,11 +408,6 @@ describe('sanitiseResponse', () => {
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
-  it('returns REFUSAL_PHRASE when the response contains "I should note that"', () => {
-    const dirty = 'I should note that I am not able to verify this.';
-    assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
-  });
-
   it('returns REFUSAL_PHRASE when the response contains "As a virtual assistant"', () => {
     const dirty = 'As a virtual assistant, let me look that up for you.';
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
@@ -407,7 +419,7 @@ describe('sanitiseResponse', () => {
   });
 
   it('returns REFUSAL_PHRASE when the response contains "I was designed"', () => {
-    const dirty = 'I was designed to process natural language.';
+    const dirty = 'I was designed by OpenAI to process natural language.';
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
@@ -416,21 +428,34 @@ describe('sanitiseResponse', () => {
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
+  it('returns REFUSAL_PHRASE when the response contains "As an assistant, I" (AI roleplay pattern)', () => {
+    // "As an assistant, I can help you." — the comma+I pattern is characteristic
+    // of AI roleplay and is distinct from human job-title constructions like
+    // "As an assistant professor, I taught courses."
+    const dirty = 'As an assistant, I can help you with that.';
+    assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
+  });
+
+  // ── False-positive regression tests ──────────────────────────────────────
+  // Each test documents a phrase that was PREVIOUSLY an over-broad banned
+  // phrase and caused legitimate KB content to be incorrectly replaced with
+  // REFUSAL_PHRASE.  These must all pass through the sanitiser unchanged.
+  //
+  // Bug category: over-broad banned phrases triggered on common human expressions.
+  // Fix: Narrowed or removed the affected phrases from BANNED_PHRASES and
+  // replaced with more specific AI-identity-only forms.
+
   it('does NOT replace a legitimate "I was training for a marathon" sentence', () => {
-    // "I was training" does not appear in BANNED_PHRASES — only "I was trained" does.
+    // "I was training" (continuous form) is NOT in BANNED_PHRASES.
+    // Only the AI-specific "I was trained on" / "I was trained by <company>" forms are.
     const legitimate = 'Last year I was training for a marathon when I hurt my knee.';
-    // Should remain unchanged because "I was training" ≠ "I was trained"
-    // (exact substring match — no word-boundary logic applied).
-    // This verifies the sanitiser does not over-eagerly replace legitimate text.
     const result = sanitiseResponse(legitimate, CLONE_NAME);
     assert.equal(result, legitimate);
   });
 
   it('does NOT replace a legitimate "my training at Google" sentence', () => {
-    // Bug regression test: "my training" (without "data"/"cutoff"/"corpus") must
-    // NOT be banned — it is a legitimate human phrase.  Previously "my training"
-    // was in BANNED_PHRASES and caused false positives for any sentence mentioning
-    // professional or athletic training.
+    // Regression: bare "my training" (without "data"/"cutoff"/"corpus") must NOT
+    // be banned — it is a common human phrase about professional development.
     const legitimate = 'During my training at Google I learned a lot about distributed systems.';
     const result = sanitiseResponse(legitimate, CLONE_NAME);
     assert.equal(
@@ -441,8 +466,6 @@ describe('sanitiseResponse', () => {
   });
 
   it('does NOT replace a legitimate "my training regime" sentence', () => {
-    // Regression for bug: "my training" alone was previously banned and would
-    // have replaced this legitimate personal-health statement with REFUSAL_PHRASE.
     const legitimate = 'Back when my training regime was strict, I ran marathons every weekend.';
     const result = sanitiseResponse(legitimate, CLONE_NAME);
     assert.equal(
@@ -459,6 +482,140 @@ describe('sanitiseResponse', () => {
       result,
       legitimate,
       'Legitimate phrase "my training background" must not be blocked by the sanitiser'
+    );
+  });
+
+  it('does NOT replace "I was trained at Google" (human education/mentorship)', () => {
+    // Regression: bare "I was trained" was previously in BANNED_PHRASES but caused
+    // false positives for human educational/mentorship contexts.  Now only the
+    // AI-specific "I was trained on" and "I was trained by <AI company>" forms are banned.
+    const legitimate = 'I was trained at Google as a software engineer for three years.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      'Legitimate phrase "I was trained at Google" must not be blocked by the sanitiser'
+    );
+  });
+
+  it('does NOT replace "I was trained in classical piano" (human skill acquisition)', () => {
+    const legitimate = 'I was trained in classical piano from age 6.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      'Legitimate human skill-training phrase must not be blocked by the sanitiser'
+    );
+  });
+
+  it('does NOT replace "I was trained by my mentor" (human mentorship)', () => {
+    // "I was trained by my mentor" is legitimate human speech about mentorship.
+    // Only "I was trained by OpenAI/Anthropic/Google/Microsoft" (AI companies)
+    // are banned to specifically catch AI-creation disclosures.
+    const legitimate = 'I was trained by my mentor Dr. Smith in the art of negotiation.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      'Human mentorship phrase "I was trained by my mentor" must not be blocked'
+    );
+  });
+
+  it('does NOT replace "As an assistant professor, I taught" (job title, not AI identity)', () => {
+    // Regression: "As an assistant" was previously a bare banned phrase, causing
+    // false positives for all legitimate uses of the word "assistant" as a job
+    // title prefix (assistant professor, assistant manager, assistant director, etc.).
+    // Now only "As an assistant, I" (with comma+I) is banned to target the
+    // specific AI roleplay pattern.
+    const legitimate = 'As an assistant professor, I taught distributed systems at Stanford.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"As an assistant professor" is a legitimate job title and must not be blocked'
+    );
+  });
+
+  it('does NOT replace "I am an assistant professor" (job title, not AI identity)', () => {
+    const legitimate = 'I am an assistant professor at MIT, specialising in ML systems.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"I am an assistant professor" is a legitimate job title and must not be blocked'
+    );
+  });
+
+  it('does NOT replace "As an AI researcher, I published" (job title, not AI identity)', () => {
+    // Regression: bare "As an AI" was previously banned, causing false positives for
+    // AI researchers/engineers describing their professional role.
+    // Now only "As an AI," (with a comma directly after AI, indicating standalone
+    // identity) is banned.  "As an AI researcher" has no comma after "AI".
+    const legitimate = 'As an AI researcher, I published several papers on neural scaling laws.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"As an AI researcher" is a legitimate human job description and must not be blocked'
+    );
+  });
+
+  it('does NOT replace "I am not able to attend" (common human scheduling constraint)', () => {
+    // Regression: "I am not able to" was previously banned, causing false positives
+    // for common human expressions about scheduling, access, or capability limitations.
+    const legitimate = 'I am not able to attend the conference due to prior commitments.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"I am not able to attend" is a common human scheduling phrase and must not be blocked'
+    );
+  });
+
+  it('does NOT replace "I cannot provide classified information" (human confidentiality)', () => {
+    // Regression: "I cannot provide" was previously banned, causing false positives
+    // for legitimate statements about confidentiality, NDAs, or privacy.
+    const legitimate =
+      'I cannot provide classified information about the project under my NDA.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"I cannot provide classified information" is a legitimate confidentiality statement'
+    );
+  });
+
+  it('does NOT replace "I should note that my paper was peer-reviewed" (academic writing)', () => {
+    // Regression: "I should note that" was previously banned, causing false positives
+    // in academic and professional KB documents where this phrasing is very common.
+    const legitimate = 'I should note that my paper was peer-reviewed before publication.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"I should note that" in an academic context is legitimate human writing and must not be blocked'
+    );
+  });
+
+  it('does NOT replace "It is worth noting that I published" (academic emphasis)', () => {
+    const legitimate = 'It is worth noting that I published three papers on this topic in 2021.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"It is worth noting that I published" is legitimate academic phrasing and must not be blocked'
+    );
+  });
+
+  it('does NOT replace "I am designed to be a problem solver at heart" (human self-description)', () => {
+    // Regression: "I am designed to" was previously banned, causing false positives
+    // for humans describing their work philosophy or personal values.
+    const legitimate = 'I am designed to be a problem solver at heart — it is how I think.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      '"I am designed to" in a self-description context is legitimate human speech'
     );
   });
 
@@ -781,13 +938,14 @@ describe('Persona voice — banned phrase regression', () => {
 
     // Now check the non-enumeration portion doesn't accidentally contain
     // a banned phrase in an unintended way.
+    // Note: "training data" (without "my") appears in the grounding rule as
+    // "Do not draw on any general world knowledge, training data, assumptions…"
+    // — this is intentional and not the banned phrase "my training data".
     const sensitiveCheck = [
-      'As an AI',
       "I'm an AI",
       'I am an AI',
       'As a language model',
       'As a chatbot',
-      'I was trained',
       'my training data',
       'my training cutoff',
       'my training corpus',
@@ -961,14 +1119,20 @@ describe('BANNED_PHRASES completeness', () => {
   });
 
   it('BANNED_PHRASES contains case-variants for the most critical AI identity phrases', () => {
+    // These are the unambiguously AI-specific phrases that must always be present.
+    // Note: "As an AI" (bare) was narrowed to "As an AI," (with comma) to avoid
+    // false positives on legitimate job-title phrases like "As an AI researcher, I…".
+    // The comma form "As an AI," is the specific pattern an AI model uses to
+    // identify itself; human job titles always have a follow-on noun, not a comma.
     const criticalPhrases = [
-      'As an AI',
-      'as an AI',
+      'As an AI assistant',
+      'as an AI assistant',
+      'As an AI,',
+      'as an AI,',
       'I am an AI',
       "I'm an AI",
       'As a language model',
       'as a language model',
-      'I was trained',
       'my training data',
       'my training cutoff',
       'my training corpus',
@@ -991,6 +1155,77 @@ describe('BANNED_PHRASES completeness', () => {
       !(BANNED_PHRASES as readonly string[]).includes('my training'),
       '"my training" must NOT appear in BANNED_PHRASES — it causes false positives ' +
         'for legitimate human phrases like "my training at Google" or "my training regime"'
+    );
+  });
+
+  it('does NOT contain the overly broad bare "As an AI" phrase (false-positive regression)', () => {
+    // "As an AI" (without a trailing comma) would falsely match legitimate human
+    // professional phrases like "As an AI researcher, I published papers."
+    // Only the comma form "As an AI," (which signals a standalone AI identity
+    // declaration) is banned.
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('As an AI'),
+      '"As an AI" (bare, without comma) must NOT appear in BANNED_PHRASES — it causes ' +
+        'false positives for "As an AI researcher/engineer, I…" type sentences'
+    );
+  });
+
+  it('does NOT contain the overly broad bare "as an AI" phrase (false-positive regression)', () => {
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('as an AI'),
+      '"as an AI" (bare, without comma) must NOT appear in BANNED_PHRASES — same reason'
+    );
+  });
+
+  it('does NOT contain bare "As an assistant" / "as an assistant" (false-positive regression)', () => {
+    // "As an assistant" (bare) matched legitimate job-title uses like
+    // "As an assistant professor, I taught…" or "I am an assistant director."
+    // The narrowed form "As an assistant, I" is used instead.
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('As an assistant'),
+      '"As an assistant" (bare) must NOT appear in BANNED_PHRASES — false positive for job titles'
+    );
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('as an assistant'),
+      '"as an assistant" (bare) must NOT appear in BANNED_PHRASES — false positive for job titles'
+    );
+  });
+
+  it('does NOT contain bare "I was trained" phrase (false-positive regression)', () => {
+    // "I was trained" (bare) matched legitimate human educational/mentorship phrases like
+    // "I was trained at Google" or "I was trained in classical piano."
+    // Only AI-specific forms "I was trained on" and "I was trained by <AI company>" are banned.
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('I was trained'),
+      '"I was trained" (bare) must NOT appear in BANNED_PHRASES — false positive for ' +
+        'human educational phrases like "I was trained at Google" or "I was trained in martial arts"'
+    );
+  });
+
+  it('does NOT contain "I cannot provide" (false-positive regression)', () => {
+    // "I cannot provide" matched legitimate human confidentiality statements like
+    // "I cannot provide classified information under my NDA."
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('I cannot provide'),
+      '"I cannot provide" must NOT appear in BANNED_PHRASES — false positive for human confidentiality statements'
+    );
+  });
+
+  it('does NOT contain "I am not able to" (false-positive regression)', () => {
+    // "I am not able to" is an extremely common human phrase for scheduling and
+    // access limitations, e.g. "I am not able to attend the conference."
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('I am not able to'),
+      '"I am not able to" must NOT appear in BANNED_PHRASES — very common human phrase'
+    );
+  });
+
+  it('does NOT contain "I should note that" (false-positive regression)', () => {
+    // "I should note that" is extremely common in academic/professional writing,
+    // e.g. "I should note that my paper was peer-reviewed."
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('I should note that'),
+      '"I should note that" must NOT appear in BANNED_PHRASES — very common in human academic/professional writing'
     );
   });
 
