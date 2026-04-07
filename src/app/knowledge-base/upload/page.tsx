@@ -209,8 +209,8 @@ export default function UploadPage() {
       </div>
 
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">Upload Documents</h1>
-        <p className="mt-1 text-muted-foreground">
+        <h1 className="text-3xl font-bold text-black">Upload Documents</h1>
+        <p className="mt-1 text-gray-500">
           Upload PDF files to add them to your knowledge base. Maximum file size is{' '}
           {MAX_FILE_SIZE_MB}&nbsp;MB per file.
         </p>
@@ -222,20 +222,22 @@ export default function UploadPage() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`mb-6 cursor-pointer border-2 border-dashed transition-colors ${
-          isDragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+          isDragging
+            ? 'border-black bg-gray-50'
+            : 'border-gray-200 hover:border-gray-400'
         }`}
         onClick={() => inputRef.current?.click()}
       >
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <Upload
             className={`mb-4 h-10 w-10 transition-colors ${
-              isDragging ? 'text-primary' : 'text-muted-foreground'
+              isDragging ? 'text-black' : 'text-gray-400'
             }`}
           />
-          <p className="text-sm font-medium text-foreground">
+          <p className="text-sm font-medium text-black">
             {isDragging ? 'Drop your PDF files here' : 'Drag & drop PDF files here'}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">or click to browse</p>
+          <p className="mt-1 text-xs text-gray-500">or click to browse</p>
           <input
             ref={inputRef}
             type="file"
@@ -259,7 +261,7 @@ export default function UploadPage() {
       {/* Actions */}
       {files.length > 0 && (
         <div className="flex items-center justify-between gap-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-gray-500">
             {successCount > 0 && `${successCount} uploaded \u00b7 `}
             {pendingCount > 0 && `${pendingCount} ready to upload`}
             {isUploading && `Uploading ${uploadingCount} file${uploadingCount > 1 ? 's' : ''}...`}
@@ -316,30 +318,30 @@ interface FileRowProps {
 
 function FileRow({ item, onRemove, onRetry }: FileRowProps) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm">
+    <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
       {/* Icon */}
       <div className="flex-shrink-0 mt-0.5">
         {item.state === 'uploading' ? (
-          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          <Loader2 className="h-5 w-5 animate-spin text-black" />
         ) : item.state === 'success' ? (
-          <CheckCircle2 className="h-5 w-5 text-green-500" />
+          <CheckCircle2 className="h-5 w-5 text-black" />
         ) : item.state === 'error' ? (
-          <XCircle className="h-5 w-5 text-destructive" />
+          <XCircle className="h-5 w-5 text-black" />
         ) : (
-          <FileText className="h-5 w-5 text-muted-foreground" />
+          <FileText className="h-5 w-5 text-gray-400" />
         )}
       </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="truncate text-sm font-medium text-foreground">{item.file.name}</p>
-        <p className="text-xs text-muted-foreground">{formatFileSize(item.file.size)}</p>
+        <p className="truncate text-sm font-medium text-black">{item.file.name}</p>
+        <p className="text-xs text-gray-500">{formatFileSize(item.file.size)}</p>
 
         {/* Progress bar */}
         {item.state === 'uploading' && (
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
             <div
-              className="h-full rounded-full bg-primary transition-all duration-300"
+              className="h-full rounded-full bg-black transition-all duration-300"
               style={{ width: `${item.progress}%` }}
             />
           </div>
@@ -354,7 +356,7 @@ function FileRow({ item, onRemove, onRetry }: FileRowProps) {
 
         {/* Error message */}
         {item.state === 'error' && item.errorMessage && (
-          <p className="mt-1 text-xs text-destructive">{item.errorMessage}</p>
+          <p className="mt-1 text-xs text-black">{item.errorMessage}</p>
         )}
       </div>
 
@@ -374,7 +376,7 @@ function FileRow({ item, onRemove, onRetry }: FileRowProps) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+            className="h-8 w-8 p-0 text-gray-400 hover:text-black"
             onClick={() => onRemove(item.id)}
             aria-label="Remove file"
           >

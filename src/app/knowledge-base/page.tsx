@@ -130,8 +130,8 @@ export default function KnowledgeBasePage() {
       {/* Header */}
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Knowledge Base</h1>
-          <p className="mt-1 text-muted-foreground">
+          <h1 className="text-3xl font-bold text-black">Knowledge Base</h1>
+          <p className="mt-1 text-gray-500">
             Manage your uploaded documents and their processing status.
           </p>
         </div>
@@ -157,15 +157,15 @@ export default function KnowledgeBasePage() {
 
       {/* Global error */}
       {error && (
-        <div className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-black">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
           <div>
             <p className="font-medium">Error</p>
             <p className="mt-0.5">{error}</p>
           </div>
           <button
             onClick={() => setError(null)}
-            className="ml-auto flex-shrink-0 text-destructive hover:text-destructive/80"
+            className="ml-auto flex-shrink-0 text-gray-500 hover:text-black"
             aria-label="Dismiss error"
           >
             &times;
@@ -177,7 +177,7 @@ export default function KnowledgeBasePage() {
       {isLoading && (
         <div className="space-y-3">
           {[1, 2, 3].map((n) => (
-            <div key={n} className="h-20 animate-pulse rounded-lg bg-muted" />
+            <div key={n} className="h-20 animate-pulse rounded-lg bg-gray-100" />
           ))}
         </div>
       )}
@@ -186,7 +186,7 @@ export default function KnowledgeBasePage() {
       {!isLoading && documents.length === 0 && !error && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <FileText className="mb-4 h-12 w-12 text-muted-foreground" />
+            <FileText className="mb-4 h-12 w-12 text-gray-400" />
             <CardTitle className="mb-2 text-lg">No documents yet</CardTitle>
             <CardDescription className="mb-6">
               Upload PDF files to build your knowledge base and enable AI-powered document
@@ -206,7 +206,7 @@ export default function KnowledgeBasePage() {
       {!isLoading && documents.length > 0 && (
         <div className="space-y-3">
           {/* Stats bar */}
-          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mb-2">
+          <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-2">
             <span>{documents.length} document{documents.length !== 1 ? 's' : ''}</span>
             {[
               { label: 'completed', count: documents.filter((d) => d.status === 'COMPLETED').length },
@@ -286,7 +286,7 @@ function DocumentRow({
         aria-expanded={isExpanded}
       >
         {/* Expand chevron */}
-        <span className="flex-shrink-0 text-muted-foreground">
+        <span className="flex-shrink-0 text-gray-400">
           {isExpanded ? (
             <ChevronDown className="h-4 w-4" />
           ) : (
@@ -295,12 +295,12 @@ function DocumentRow({
         </span>
 
         {/* File icon */}
-        <FileText className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
+        <FileText className="h-5 w-5 flex-shrink-0 text-gray-400" />
 
         {/* Main info */}
         <div className="flex-1 min-w-0">
-          <p className="truncate font-medium text-sm text-foreground">{doc.originalFilename}</p>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <p className="truncate font-medium text-sm text-black">{doc.originalFilename}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
             <span>{formatFileSize(doc.fileSize)}</span>
             {doc.pageCount != null && (
               <span>{doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''}</span>
@@ -321,7 +321,7 @@ function DocumentRow({
         >
           {isConfirmingDelete ? (
             <>
-              <span className="text-xs text-destructive font-medium">Delete?</span>
+              <span className="text-xs text-black font-medium">Delete?</span>
               <Button
                 variant="destructive"
                 size="sm"
@@ -345,7 +345,7 @@ function DocumentRow({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+              className="h-8 w-8 p-0 text-gray-400 hover:text-black"
               disabled={isDeleting}
               onClick={onDeleteRequest}
               aria-label="Delete document"
@@ -358,8 +358,8 @@ function DocumentRow({
 
       {/* Error message when status is failed */}
       {doc.status === 'FAILED' && doc.errorMessage && (
-        <div className="border-t border-destructive/20 bg-destructive/5 px-4 py-2">
-          <p className="text-xs text-destructive">
+        <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
+          <p className="text-xs text-black">
             <span className="font-medium">Processing error: </span>
             {doc.errorMessage}
           </p>
@@ -368,16 +368,16 @@ function DocumentRow({
 
       {/* Expanded detail */}
       {isExpanded && (
-        <div className="border-t bg-muted/30 px-4 py-4">
+        <div className="border-t border-gray-200 bg-gray-50 px-4 py-4">
           {isLoadingDetail ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading chunks...
             </div>
           ) : detail ? (
             <DocumentDetailPanel detail={detail} />
           ) : (
-            <p className="text-sm text-muted-foreground">No detail available.</p>
+            <p className="text-sm text-gray-500">No detail available.</p>
           )}
         </div>
       )}
@@ -402,22 +402,22 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">
+        <h3 className="text-sm font-semibold text-black">
           Extracted chunks{' '}
-          <span className="font-normal text-muted-foreground">({chunks.length})</span>
+          <span className="font-normal text-gray-500">({chunks.length})</span>
         </h3>
       </div>
 
       {chunks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No text chunks were extracted.</p>
+        <p className="text-sm text-gray-500">No text chunks were extracted.</p>
       ) : (
         <div className="space-y-2">
           {visible.map((chunk) => (
             <div
               key={chunk.id}
-              className="rounded-md border bg-card px-3 py-2 text-xs text-foreground"
+              className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-black"
             >
-              <div className="mb-1 flex items-center gap-2 text-muted-foreground">
+              <div className="mb-1 flex items-center gap-2 text-gray-500">
                 <span className="font-medium">Chunk {chunk.chunkIndex + 1}</span>
                 <span>&middot;</span>
                 <span>Page {chunk.pageNumber}</span>
@@ -429,7 +429,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
           {chunks.length > PREVIEW_COUNT && (
             <button
               onClick={() => setShowAll((s) => !s)}
-              className="mt-1 text-xs text-primary hover:underline"
+              className="mt-1 text-xs text-black underline-offset-4 hover:underline"
             >
               {showAll
                 ? 'Show less'
