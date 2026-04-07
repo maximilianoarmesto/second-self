@@ -173,10 +173,10 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-6">
-        <div className="h-8 w-48 bg-muted rounded animate-pulse" />
+        <div className="h-8 w-48 bg-gray-100 rounded animate-pulse" />
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-32 bg-muted rounded-lg animate-pulse" />
+            <div key={i} className="h-32 bg-gray-100 rounded-lg animate-pulse" />
           ))}
         </div>
       </div>
@@ -187,8 +187,8 @@ export default function SettingsPage() {
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Settings</h1>
-        <p className="mt-1 text-muted-foreground">
+        <h1 className="text-3xl font-bold text-black">Settings</h1>
+        <p className="mt-1 text-gray-500">
           Configure your digital clone's behavior and preferences.
         </p>
       </div>
@@ -233,7 +233,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => setShowApiKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black transition-colors"
                 aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
               >
                 {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -248,44 +248,40 @@ export default function SettingsPage() {
               {testStatus === 'testing' ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : testStatus === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
+                <CheckCircle2 className="w-4 h-4" />
               ) : testStatus === 'error' ? (
-                <XCircle className="w-4 h-4 text-destructive" />
+                <XCircle className="w-4 h-4" />
               ) : null}
               Test Connection
             </Button>
           </div>
           {testMessage && (
-            <p
-              className={`text-sm ${
-                testStatus === 'success' ? 'text-green-500' : 'text-destructive'
-              }`}
-            >
+            <p className="text-sm text-black">
               {testMessage}
             </p>
           )}
 
           {/* Store key on server option */}
-          <div className="border border-input rounded-lg p-4 space-y-2 max-w-lg">
+          <div className="border border-gray-200 rounded-lg p-4 space-y-2 max-w-lg">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={storeKeyOnServer}
                 onChange={(e) => setStoreKeyOnServer(e.target.checked)}
-                className="rounded border-input"
+                className="rounded border-gray-300"
               />
-              <span className="text-sm font-medium text-foreground">
+              <span className="text-sm font-medium text-black">
                 Store API key on server for public clone access
               </span>
             </label>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-gray-500">
               When enabled, your API key will be saved on the server so that visitors can chat with
               your public clone without needing their own key. The key is sent when you click
               &quot;Save Settings&quot;.
             </p>
             {serverKeyMasked && (
-              <p className="text-xs text-muted-foreground">
-                Server key: <code className="text-foreground">{serverKeyMasked}</code>
+              <p className="text-xs text-gray-500">
+                Server key: <code className="text-black">{serverKeyMasked}</code>
               </p>
             )}
           </div>
@@ -304,7 +300,7 @@ export default function SettingsPage() {
           <select
             value={tone}
             onChange={(e) => setTone(e.target.value)}
-            className="flex h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-foreground"
+            className="flex h-10 w-full max-w-sm rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black"
           >
             {TONE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -327,7 +323,7 @@ export default function SettingsPage() {
           <select
             value={responseLength}
             onChange={(e) => setResponseLength(e.target.value)}
-            className="flex h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-foreground"
+            className="flex h-10 w-full max-w-sm rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black"
           >
             {RESPONSE_LENGTH_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -353,7 +349,7 @@ export default function SettingsPage() {
             onChange={(e) => setSystemPrompt(e.target.value)}
             placeholder="You are a helpful assistant that answers questions based on the provided knowledge base..."
             rows={6}
-            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-foreground resize-y min-h-[120px]"
+            className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black resize-y min-h-[120px]"
           />
         </CardContent>
       </Card>
@@ -369,11 +365,7 @@ export default function SettingsPage() {
           Save Settings
         </Button>
         {saveMessage && (
-          <p
-            className={`text-sm ${
-              saveMessage.type === 'success' ? 'text-green-500' : 'text-destructive'
-            }`}
-          >
+          <p className="text-sm text-black">
             {saveMessage.text}
           </p>
         )}

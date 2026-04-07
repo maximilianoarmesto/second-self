@@ -48,7 +48,7 @@ export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarP
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-card border-r border-border transition-all duration-300 ease-in-out',
+        'flex flex-col h-full bg-surface border-r border-border transition-all duration-300 ease-in-out',
         mobile ? 'w-64' : collapsed ? 'w-[72px]' : 'w-64'
       )}
     >
@@ -78,8 +78,8 @@ export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarP
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                 active
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-foreground hover:bg-secondary hover:text-foreground'
               )}
               title={collapsed && !mobile ? item.label : undefined}
             >
@@ -97,7 +97,7 @@ export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarP
         <div className="px-2 py-3 border-t border-border flex-shrink-0">
           <button
             onClick={onToggle}
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-full"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-foreground hover:bg-secondary transition-colors w-full"
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? (

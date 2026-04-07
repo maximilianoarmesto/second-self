@@ -136,8 +136,8 @@ export default function SharePage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Share</h1>
-          <p className="mt-1 text-muted-foreground">
+          <h1 className="text-3xl font-bold text-black">Share</h1>
+          <p className="mt-1 text-gray-500">
             Generate public links to share your digital clone with others.
           </p>
         </div>
@@ -151,7 +151,7 @@ export default function SharePage() {
       {loading && (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
+            <div key={i} className="h-24 rounded-lg bg-gray-100 animate-pulse" />
           ))}
         </div>
       )}
@@ -160,7 +160,7 @@ export default function SharePage() {
       {!loading && links.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Link2 className="w-12 h-12 text-muted-foreground mb-4" />
+            <Link2 className="w-12 h-12 text-gray-400 mb-4" />
             <CardTitle className="text-lg mb-2">No share links yet</CardTitle>
             <CardDescription className="mb-6">
               Generate a public link to let others interact with your digital clone.
@@ -188,16 +188,16 @@ export default function SharePage() {
             return (
               <Card
                 key={link.id}
-                className={isRevoked ? 'opacity-60' : isNew ? 'ring-1 ring-primary/50' : ''}
+                className={isRevoked ? 'opacity-60' : isNew ? 'ring-1 ring-gray-400' : ''}
               >
                 <CardContent className="p-4 space-y-3">
                   {/* Top row */}
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <Link2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <Link2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{link.label}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm font-medium text-black truncate">{link.label}</p>
+                        <p className="text-xs text-gray-500">
                           Generated on{' '}
                           {new Date(link.createdAt).toLocaleDateString(undefined, {
                             year: 'numeric',
@@ -207,7 +207,7 @@ export default function SharePage() {
                         </p>
                       </div>
                     </div>
-                    <Badge variant={isActive ? 'default' : 'secondary'}>
+                    <Badge variant={isActive ? 'default' : 'outline'}>
                       {isActive ? 'Active' : 'Revoked'}
                     </Badge>
                   </div>
@@ -218,7 +218,7 @@ export default function SharePage() {
                       <Input
                         readOnly
                         value={getPublicUrl(link.token!)}
-                        className="text-xs font-mono bg-muted border-none"
+                        className="text-xs font-mono bg-gray-50 border-gray-200"
                         onClick={(e) => (e.target as HTMLInputElement).select()}
                       />
                       <Button
@@ -249,7 +249,7 @@ export default function SharePage() {
 
                   {/* Info for existing links without a raw token */}
                   {isActive && !hasToken && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-gray-500">
                       The share URL was shown when this link was created. For security, the token is
                       not stored and cannot be displayed again.
                     </p>
@@ -260,7 +260,7 @@ export default function SharePage() {
                     <div className="flex justify-end">
                       {isConfirmingRevoke ? (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-destructive font-medium">
+                          <span className="text-xs text-black font-medium">
                             Revoke this link?
                           </span>
                           <Button
@@ -290,7 +290,7 @@ export default function SharePage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-xs text-muted-foreground hover:text-destructive gap-1.5"
+                          className="text-xs text-gray-500 hover:text-black gap-1.5"
                           onClick={() => setRevokeConfirm(link.id)}
                         >
                           <XCircle className="w-3.5 h-3.5" />
@@ -302,7 +302,7 @@ export default function SharePage() {
 
                   {/* New link prompt */}
                   {isNew && isActive && hasToken && (
-                    <p className="text-xs text-primary font-medium">
+                    <p className="text-xs text-black font-medium">
                       Link created and copied to clipboard. Save this URL — it cannot be shown
                       again.
                     </p>

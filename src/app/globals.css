@@ -2,53 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  /* Dark theme as default */
-  :root {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    --card: 223 47% 8%;
-    --card-foreground: 210 40% 98%;
-    --popover: 223 47% 8%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 223 47% 13%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 223 47% 13%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 217 91% 60%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 223 30% 15%;
-    --input: 223 30% 15%;
-    --ring: 217 91% 60%;
-    --radius: 0.5rem;
-  }
+/*
+ * Black & White design token definitions.
+ *
+ * Every color in the app flows through these CSS custom properties so that
+ * the palette is controlled from one place.  No dark-mode variants are
+ * defined — the app intentionally ships a single, light-only theme.
+ *
+ *  Token               HSL value              Tailwind equivalent
+ *  ──────────────────  ─────────────────────  ──────────────────────────
+ *  --background        0 0% 100%              white
+ *  --surface           210 20% 98%            gray-50  (raised surfaces)
+ *  --foreground        0 0% 0%                black    (primary text)
+ *  --primary           0 0% 0%                black    (buttons, active UI)
+ *  --primary-foreground 0 0% 100%             white    (text on primary)
+ *  --secondary         220 14% 96%            gray-100 (subtle fills)
+ *  --secondary-foreground 220 9% 11%          gray-900 (text on secondary)
+ *  --muted             220 14% 96%            gray-100 (de-emphasised fills)
+ *  --muted-foreground  220 9% 43%             gray-500 (placeholder / helper)
+ *  --accent            0 0% 0%                black    (interactive accent)
+ *  --accent-foreground 0 0% 100%              white    (text on accent)
+ *  --destructive       0 72% 51%              red-600  (danger)
+ *  --destructive-foreground 0 0% 100%         white    (text on destructive)
+ *  --border            220 13% 91%            gray-200 (dividers)
+ *  --input             220 13% 91%            gray-200 (input borders)
+ *  --ring              0 0% 0%                black    (focus ring)
+ *  --card              0 0% 100%              white    (= background)
+ *  --card-foreground   0 0% 0%                black
+ *  --popover           0 0% 100%              white
+ *  --popover-foreground 0 0% 0%               black
+ *  --radius            0.5rem                 border-radius base
+ */
 
-  /* Light theme opt-in */
-  .light {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 217 91% 60%;
-    --radius: 0.5rem;
+@layer base {
+  :root {
+    /* Page background & text */
+    --background:           0 0% 100%;
+    --foreground:           0 0% 0%;
+
+    /* Raised surfaces (sidebar, cards) */
+    --surface:              210 20% 98%;
+
+    /* Cards */
+    --card:                 0 0% 100%;
+    --card-foreground:      0 0% 0%;
+
+    /* Popovers / dropdowns */
+    --popover:              0 0% 100%;
+    --popover-foreground:   0 0% 0%;
+
+    /* Primary — solid black */
+    --primary:              0 0% 0%;
+    --primary-foreground:   0 0% 100%;
+
+    /* Secondary — light gray fill */
+    --secondary:            220 14% 96%;
+    --secondary-foreground: 220 9% 11%;
+
+    /* Muted — identical to secondary; used for skeletons and disabled states */
+    --muted:                220 14% 96%;
+    --muted-foreground:     220 9% 43%;
+
+    /* Accent — black (same as primary; drives interactive highlights) */
+    --accent:               0 0% 0%;
+    --accent-foreground:    0 0% 100%;
+
+    /* Destructive — kept red so danger actions remain clearly distinct */
+    --destructive:          0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Structural */
+    --border:               220 13% 91%;
+    --input:                220 13% 91%;
+    --ring:                 0 0% 0%;
+    --radius:               0.5rem;
   }
 }
 
@@ -61,7 +88,8 @@
   }
 }
 
-/* Custom scrollbar */
+/* ── Scrollbar styling ───────────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -72,7 +100,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
+  background: hsl(var(--muted-foreground) / 0.25);
   border-radius: 3px;
 }
 
@@ -80,8 +108,8 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-/* Firefox scrollbar */
+/* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted)) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
 }

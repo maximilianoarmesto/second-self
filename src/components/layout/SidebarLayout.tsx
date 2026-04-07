@@ -57,10 +57,10 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile header */}
-        <div className="md:hidden flex items-center h-14 px-4 border-b border-border bg-card flex-shrink-0">
+        <div className="md:hidden flex items-center h-14 px-4 border-b border-border bg-surface flex-shrink-0">
           <button
             onClick={() => setMobileOpen(true)}
-            className="p-2 -ml-2 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="p-2 -ml-2 rounded-lg text-foreground hover:bg-secondary transition-colors"
             aria-label="Open menu"
           >
             <Menu className="w-5 h-5" />

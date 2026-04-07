@@ -132,8 +132,8 @@ export default function PublicClonePage() {
   // ---- Validating state ----
   if (validating) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex items-center gap-3 text-muted-foreground">
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex items-center gap-3 text-gray-500">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span className="text-sm">Validating access...</span>
         </div>
@@ -144,12 +144,12 @@ export default function PublicClonePage() {
   // ---- Invalid token ----
   if (!valid) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <div className="min-h-screen bg-white flex items-center justify-center px-4">
         <Card className="max-w-md w-full">
           <CardContent className="flex flex-col items-center py-12 text-center">
-            <ShieldAlert className="w-12 h-12 text-destructive mb-4" />
-            <h1 className="text-xl font-semibold text-foreground mb-2">Access Denied</h1>
-            <p className="text-sm text-muted-foreground">
+            <ShieldAlert className="w-12 h-12 text-black mb-4" />
+            <h1 className="text-xl font-semibold text-black mb-2">Access Denied</h1>
+            <p className="text-sm text-gray-500">
               This link is invalid or has been revoked. Please contact the owner for a new link.
             </p>
           </CardContent>
@@ -160,18 +160,18 @@ export default function PublicClonePage() {
 
   // ---- Valid — show chat ----
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
-      <header className="border-b border-border bg-card px-4 py-3 flex-shrink-0">
+      <header className="border-b border-gray-200 bg-white px-4 py-3 flex-shrink-0">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-primary-foreground">SS</span>
+          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+            <span className="text-xs font-bold text-white">SS</span>
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-foreground">
+            <h1 className="text-sm font-semibold text-black">
               {cloneName}&apos;s Second Self
             </h1>
-            <p className="text-xs text-muted-foreground">AI-powered digital clone</p>
+            <p className="text-xs text-gray-500">AI-powered digital clone</p>
           </div>
         </div>
       </header>
@@ -180,13 +180,13 @@ export default function PublicClonePage() {
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 && !isLoading ? (
           <div className="flex flex-col items-center justify-center h-full text-center max-w-md mx-auto">
-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-              <span className="text-lg font-bold text-primary">SS</span>
+            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+              <span className="text-lg font-bold text-black">SS</span>
             </div>
-            <h2 className="text-lg font-semibold text-foreground mb-1">
+            <h2 className="text-lg font-semibold text-black mb-1">
               Chat with {cloneName}&apos;s Second Self
             </h2>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-gray-500">
               Ask questions and get answers based on {cloneName}&apos;s knowledge base.
             </p>
           </div>
@@ -202,7 +202,7 @@ export default function PublicClonePage() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-border bg-card p-4 flex-shrink-0">
+      <div className="border-t border-gray-200 bg-white p-4 flex-shrink-0">
         <div className="max-w-3xl mx-auto flex gap-2">
           <Input
             ref={inputRef}
@@ -222,7 +222,7 @@ export default function PublicClonePage() {
             <Send className="w-4 h-4" />
           </Button>
         </div>
-        <p className="max-w-3xl mx-auto text-[10px] text-muted-foreground mt-2 text-center">
+        <p className="max-w-3xl mx-auto text-[10px] text-gray-400 mt-2 text-center">
           Responses are generated from the owner&apos;s uploaded knowledge base.
         </p>
       </div>
@@ -243,8 +243,8 @@ function PublicMessageBubble({ message }: { message: CloneMessage }) {
         className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
           isUser
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-secondary text-secondary-foreground'
+            ? 'bg-black text-white'
+            : 'bg-gray-100 text-gray-900'
         )}
       >
         {isUser ? 'Y' : 'SS'}
@@ -254,14 +254,14 @@ function PublicMessageBubble({ message }: { message: CloneMessage }) {
           className={cn(
             'inline-block rounded-2xl px-4 py-2.5 text-sm text-left',
             isUser
-              ? 'bg-primary text-primary-foreground rounded-tr-md'
-              : 'bg-secondary text-secondary-foreground rounded-tl-md'
+              ? 'bg-black text-white rounded-tr-md'
+              : 'bg-gray-100 text-gray-900 rounded-tl-md'
           )}
         >
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose dark:prose-invert prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            <div className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
               <ReactMarkdown>{message.content}</ReactMarkdown>
             </div>
           )}
@@ -278,21 +278,21 @@ function PublicMessageBubble({ message }: { message: CloneMessage }) {
 function PublicTypingIndicator() {
   return (
     <div className="flex gap-3">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-secondary-foreground">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-900">
         SS
       </div>
-      <div className="bg-secondary rounded-2xl rounded-tl-md px-4 py-3">
+      <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
         <div className="flex space-x-1.5">
           <span
-            className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce"
+            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
             style={{ animationDelay: '0ms' }}
           />
           <span
-            className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce"
+            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
             style={{ animationDelay: '150ms' }}
           />
           <span
-            className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce"
+            className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
             style={{ animationDelay: '300ms' }}
           />
         </div>

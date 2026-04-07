@@ -214,12 +214,12 @@ export default function ChatPage() {
       {/* Session sidebar */}
       <div
         className={cn(
-          'flex-shrink-0 border-r border-border bg-card flex flex-col transition-all duration-200',
+          'flex-shrink-0 border-r border-gray-200 bg-white flex flex-col transition-all duration-200',
           sidebarOpen ? 'w-[280px]' : 'w-0 overflow-hidden'
         )}
       >
         {/* New chat button */}
-        <div className="p-3 border-b border-border">
+        <div className="p-3 border-b border-gray-200">
           <Button onClick={createNewSession} className="w-full gap-2" size="sm">
             <Plus className="w-4 h-4" />
             New Chat
@@ -231,11 +231,11 @@ export default function ChatPage() {
           {sessionsLoading ? (
             <div className="space-y-2 p-2">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
+                <div key={i} className="h-12 rounded-lg bg-gray-100 animate-pulse" />
               ))}
             </div>
           ) : sessions.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-8 px-4">
+            <p className="text-xs text-gray-500 text-center py-8 px-4">
               No conversations yet. Start a new chat.
             </p>
           ) : (
@@ -246,19 +246,19 @@ export default function ChatPage() {
                 className={cn(
                   'group w-full text-left rounded-lg px-3 py-2.5 transition-colors cursor-pointer flex items-center gap-2',
                   activeSessionId === session.id
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-foreground hover:bg-muted'
+                    ? 'bg-gray-100 text-black'
+                    : 'text-black hover:bg-gray-100'
                 )}
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{session.title}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-xs text-gray-500 mt-0.5">
                     {new Date(session.updatedAt).toLocaleDateString()}
                   </p>
                 </div>
                 <button
                   onClick={(e) => deleteSession(session.id, e)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive transition-all"
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
                   aria-label="Delete session"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -272,16 +272,16 @@ export default function ChatPage() {
       {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Chat header */}
-        <div className="flex items-center justify-between px-4 h-14 border-b border-border flex-shrink-0">
+        <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSidebarOpen((v) => !v)}
-              className="p-1.5 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-black transition-colors"
               aria-label="Toggle session list"
             >
               <MessageCircle className="w-4 h-4" />
             </button>
-            <h2 className="text-sm font-semibold text-foreground">
+            <h2 className="text-sm font-semibold text-black">
               {activeSessionId
                 ? sessions.find((s) => s.id === activeSessionId)?.title ?? 'Chat'
                 : 'New Conversation'}
@@ -292,8 +292,8 @@ export default function ChatPage() {
             className={cn(
               'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors',
               showSources
-                ? 'text-primary bg-primary/10'
-                : 'text-muted-foreground hover:bg-muted'
+                ? 'text-black bg-gray-100'
+                : 'text-gray-500 hover:bg-gray-100'
             )}
           >
             {showSources ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -305,13 +305,13 @@ export default function ChatPage() {
         <div className="flex-1 overflow-y-auto px-4 py-6">
           {messages.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-                <MessageCircle className="w-8 h-8 text-primary" />
+              <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+                <MessageCircle className="w-8 h-8 text-black" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-1">
+              <h3 className="text-lg font-semibold text-black mb-1">
                 Start a conversation with your Second Self
               </h3>
-              <p className="text-sm text-muted-foreground max-w-md">
+              <p className="text-sm text-gray-500 max-w-md">
                 Ask questions about your uploaded documents. Your AI clone will answer based on your
                 knowledge base.
               </p>
@@ -332,7 +332,7 @@ export default function ChatPage() {
         </div>
 
         {/* Input area */}
-        <div className="border-t border-border p-4 flex-shrink-0">
+        <div className="border-t border-gray-200 p-4 flex-shrink-0">
           <div className="max-w-3xl mx-auto flex gap-2">
             <Input
               ref={inputRef}
@@ -378,8 +378,8 @@ function MessageBubble({
         className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
           isUser
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-secondary text-secondary-foreground'
+            ? 'bg-black text-white'
+            : 'bg-gray-100 text-gray-900'
         )}
       >
         {isUser ? 'Y' : 'SS'}
@@ -391,14 +391,14 @@ function MessageBubble({
           className={cn(
             'inline-block rounded-2xl px-4 py-2.5 text-sm text-left',
             isUser
-              ? 'bg-primary text-primary-foreground rounded-tr-md'
-              : 'bg-secondary text-secondary-foreground rounded-tl-md'
+              ? 'bg-black text-white rounded-tr-md'
+              : 'bg-gray-100 text-gray-900 rounded-tl-md'
           )}
         >
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose dark:prose-invert prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+            <div className="prose prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
               <ReactMarkdown>{message.content}</ReactMarkdown>
             </div>
           )}
@@ -410,11 +410,11 @@ function MessageBubble({
             {message.sources.map((src, i) => (
               <div
                 key={i}
-                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+                className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-500"
               >
                 <FileText className="w-3 h-3" />
                 <span className="truncate max-w-[120px]">{src.filename}</span>
-                <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">
+                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
                   p.{src.pageNumber}
                 </Badge>
               </div>
@@ -433,14 +433,14 @@ function MessageBubble({
 function TypingIndicator() {
   return (
     <div className="flex gap-3">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-secondary-foreground">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-900">
         SS
       </div>
-      <div className="bg-secondary rounded-2xl rounded-tl-md px-4 py-3">
+      <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
         <div className="flex space-x-1.5">
-          <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '0ms' }} />
-          <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '150ms' }} />
-          <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: '300ms' }} />
+          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
       </div>
     </div>

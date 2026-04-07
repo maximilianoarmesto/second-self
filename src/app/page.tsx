@@ -56,10 +56,10 @@ function StatCardSkeleton() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="h-4 w-24 rounded bg-muted animate-pulse" />
+        <div className="h-4 w-24 rounded bg-gray-100 animate-pulse" />
       </CardHeader>
       <CardContent>
-        <div className="h-8 w-16 rounded bg-muted animate-pulse" />
+        <div className="h-8 w-16 rounded bg-gray-100 animate-pulse" />
       </CardContent>
     </Card>
   );
@@ -69,7 +69,7 @@ function ListSkeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="space-y-3">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />
+        <div key={i} className="h-14 rounded-lg bg-gray-100 animate-pulse" />
       ))}
     </div>
   );
@@ -126,19 +126,19 @@ export default function DashboardPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-8">
       {/* Page title */}
       <div>
-        <h1 className="text-3xl font-bold text-foreground">
+        <h1 className="text-3xl font-bold text-black">
           {data?.cloneName ? `${data.cloneName}'s Dashboard` : 'Dashboard'}
         </h1>
-        <p className="mt-1 text-muted-foreground">
+        <p className="mt-1 text-gray-500">
           Overview of your digital clone and knowledge base.
         </p>
       </div>
 
       {/* Error */}
       {error && (
-        <Card className="border-destructive/50">
+        <Card className="border-gray-200">
           <CardContent className="py-4">
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-sm text-black">{error}</p>
           </CardContent>
         </Card>
       )}
@@ -155,10 +155,10 @@ export default function DashboardPage() {
                     <CardDescription className="text-sm font-medium">
                       {stat.label}
                     </CardDescription>
-                    <Icon className="w-4 h-4 text-muted-foreground" />
+                    <Icon className="w-4 h-4 text-gray-500" />
                   </CardHeader>
                   <CardContent>
-                    <p className="text-2xl font-bold text-foreground">
+                    <p className="text-2xl font-bold text-black">
                       {data ? data[stat.key] : 0}
                     </p>
                   </CardContent>
@@ -169,18 +169,18 @@ export default function DashboardPage() {
 
       {/* Quick actions */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-3">Quick Actions</h2>
+        <h2 className="text-lg font-semibold text-black mb-3">Quick Actions</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
               <Link key={action.href} href={action.href}>
-                <Card className="hover:bg-muted/50 transition-colors cursor-pointer h-full">
+                <Card className="hover:bg-gray-50 transition-colors cursor-pointer h-full">
                   <CardContent className="flex items-center gap-3 p-4">
-                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-4 h-4 text-primary" />
+                    <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                      <Icon className="w-4 h-4 text-black" />
                     </div>
-                    <span className="text-sm font-medium text-foreground">{action.label}</span>
+                    <span className="text-sm font-medium text-black">{action.label}</span>
                   </CardContent>
                 </Card>
               </Link>
@@ -209,8 +209,8 @@ export default function DashboardPage() {
               <ListSkeleton rows={3} />
             ) : !data?.recentDocuments?.length ? (
               <div className="text-center py-8">
-                <FileText className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No documents yet</p>
+                <FileText className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">No documents yet</p>
                 <Link href="/knowledge-base/upload">
                   <Button variant="link" size="sm" className="mt-1">
                     Upload your first file
@@ -222,14 +222,14 @@ export default function DashboardPage() {
                 {data.recentDocuments.slice(0, 5).map((doc) => (
                   <div
                     key={doc.id}
-                    className="flex items-center gap-3 rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                    className="flex items-center gap-3 rounded-lg p-2 hover:bg-gray-50 transition-colors"
                   >
-                    <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
+                      <p className="text-sm font-medium text-black truncate">
                         {doc.original_filename}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-gray-500">
                         {new Date(doc.created_at).toLocaleDateString()}
                       </p>
                     </div>
@@ -259,8 +259,8 @@ export default function DashboardPage() {
               <ListSkeleton rows={3} />
             ) : !data?.recentSessions?.length ? (
               <div className="text-center py-8">
-                <MessageCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No conversations yet</p>
+                <MessageCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">No conversations yet</p>
                 <Link href="/chat">
                   <Button variant="link" size="sm" className="mt-1">
                     Start a chat
@@ -272,18 +272,18 @@ export default function DashboardPage() {
                 {data.recentSessions.slice(0, 5).map((session) => (
                   <div
                     key={session.id}
-                    className="flex items-center gap-3 rounded-lg p-2 hover:bg-muted/50 transition-colors"
+                    className="flex items-center gap-3 rounded-lg p-2 hover:bg-gray-50 transition-colors"
                   >
-                    <MessageCircle className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <MessageCircle className="w-4 h-4 text-gray-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
+                      <p className="text-sm font-medium text-black truncate">
                         {session.title}
                       </p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-gray-500">
                         {new Date(session.created_at).toLocaleDateString()}
                       </p>
                     </div>
-                    <Badge variant="secondary" className="text-xs flex-shrink-0">
+                    <Badge variant="outline" className="text-xs flex-shrink-0">
                       {session.messageCount} msg{session.messageCount !== 1 ? 's' : ''}
                     </Badge>
                   </div>
