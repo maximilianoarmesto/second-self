@@ -356,6 +356,16 @@ describe('sanitiseResponse', () => {
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
   });
 
+  it('returns REFUSAL_PHRASE when the response contains "my training cutoff"', () => {
+    const dirty = 'Based on my training cutoff date, I lack recent information.';
+    assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
+  });
+
+  it('returns REFUSAL_PHRASE when the response contains "my training corpus"', () => {
+    const dirty = 'The data in my training corpus is from many internet sources.';
+    assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
+  });
+
   it('returns REFUSAL_PHRASE when the response contains "I was created by"', () => {
     const dirty = 'I was created by OpenAI to assist users.';
     assert.equal(sanitiseResponse(dirty, CLONE_NAME), REFUSAL_PHRASE);
@@ -414,6 +424,42 @@ describe('sanitiseResponse', () => {
     // This verifies the sanitiser does not over-eagerly replace legitimate text.
     const result = sanitiseResponse(legitimate, CLONE_NAME);
     assert.equal(result, legitimate);
+  });
+
+  it('does NOT replace a legitimate "my training at Google" sentence', () => {
+    // Bug regression test: "my training" (without "data"/"cutoff"/"corpus") must
+    // NOT be banned — it is a legitimate human phrase.  Previously "my training"
+    // was in BANNED_PHRASES and caused false positives for any sentence mentioning
+    // professional or athletic training.
+    const legitimate = 'During my training at Google I learned a lot about distributed systems.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      'Legitimate human phrase "my training at Google" must not be blocked by the sanitiser'
+    );
+  });
+
+  it('does NOT replace a legitimate "my training regime" sentence', () => {
+    // Regression for bug: "my training" alone was previously banned and would
+    // have replaced this legitimate personal-health statement with REFUSAL_PHRASE.
+    const legitimate = 'Back when my training regime was strict, I ran marathons every weekend.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      'Legitimate human phrase "my training regime" must not be blocked by the sanitiser'
+    );
+  });
+
+  it('does NOT replace a legitimate "my training background" sentence', () => {
+    const legitimate = 'My training background in computer science really helped me at TechCorp.';
+    const result = sanitiseResponse(legitimate, CLONE_NAME);
+    assert.equal(
+      result,
+      legitimate,
+      'Legitimate phrase "my training background" must not be blocked by the sanitiser'
+    );
   });
 
   it('covers ALL entries in BANNED_PHRASES', () => {
@@ -743,6 +789,8 @@ describe('Persona voice — banned phrase regression', () => {
       'As a chatbot',
       'I was trained',
       'my training data',
+      'my training cutoff',
+      'my training corpus',
     ];
     for (const phrase of sensitiveCheck) {
       assert.ok(
@@ -921,6 +969,9 @@ describe('BANNED_PHRASES completeness', () => {
       'As a language model',
       'as a language model',
       'I was trained',
+      'my training data',
+      'my training cutoff',
+      'my training corpus',
       'As a chatbot',
       'as a chatbot',
     ];
@@ -930,6 +981,17 @@ describe('BANNED_PHRASES completeness', () => {
         `Critical phrase "${phrase}" is missing from BANNED_PHRASES`
       );
     }
+  });
+
+  it('does NOT contain the overly broad "my training" phrase (false-positive regression)', () => {
+    // "my training" alone is a legitimate human phrase (e.g. "my training at Google",
+    // "my training regime").  Only the AI-specific variants ("my training data",
+    // "my training cutoff", "my training corpus") should be banned.
+    assert.ok(
+      !(BANNED_PHRASES as readonly string[]).includes('my training'),
+      '"my training" must NOT appear in BANNED_PHRASES — it causes false positives ' +
+        'for legitimate human phrases like "my training at Google" or "my training regime"'
+    );
   });
 
   it('BANNED_PHRASES contains no empty strings', () => {
