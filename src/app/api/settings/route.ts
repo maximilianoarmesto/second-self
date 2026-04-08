@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import type { SettingsData } from '@/types/settings';
 
 // The default system prompt is stored in Settings as the operator-supplied
 // "custom prompt" extension.  The strict first-person persona rules (identity,
@@ -36,8 +37,9 @@ export async function GET() {
       });
     }
 
-    // Return a masked version of the API key so the client knows one is stored
-    const { openaiApiKeyEncrypted, ...rest } = settings as any;
+    // Return a masked version of the API key so the client knows one is stored.
+    // avatarUrl is included explicitly so the contract is clear to callers.
+    const { openaiApiKeyEncrypted, ...rest } = settings;
     const maskedKey =
       openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
         ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
@@ -45,7 +47,13 @@ export async function GET() {
           ? '••••••••'
           : null;
 
-    return NextResponse.json({ ...rest, openaiApiKeyMasked: maskedKey });
+    const response: SettingsData = {
+      ...rest,
+      avatarUrl: settings.avatarUrl ?? null,
+      openaiApiKeyMasked: maskedKey,
+    };
+
+    return NextResponse.json(response);
   } catch (error: any) {
     console.error('Error fetching settings:', error);
     return NextResponse.json(
@@ -97,7 +105,8 @@ export async function PUT(request: NextRequest) {
 
     // Strip the raw API key from the response for security — the client only
     // needs to know whether a key is stored (via the masked representation).
-    const { openaiApiKeyEncrypted, ...rest } = settings as any;
+    // avatarUrl is included explicitly so the contract is clear to callers.
+    const { openaiApiKeyEncrypted, ...rest } = settings;
     const maskedKey =
       openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
         ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
@@ -105,7 +114,13 @@ export async function PUT(request: NextRequest) {
           ? '••••••••'
           : null;
 
-    return NextResponse.json({ ...rest, openaiApiKeyMasked: maskedKey });
+    const response: SettingsData = {
+      ...rest,
+      avatarUrl: settings.avatarUrl ?? null,
+      openaiApiKeyMasked: maskedKey,
+    };
+
+    return NextResponse.json(response);
   } catch (error: any) {
     console.error('Error updating settings:', error);
     return NextResponse.json(

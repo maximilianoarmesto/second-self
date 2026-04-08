@@ -19,18 +19,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface SettingsData {
-  cloneName: string;
-  tone: string;
-  responseLength: string;
-  systemPrompt: string;
-  openaiApiKeyMasked: string | null;
-}
+import type { SettingsData } from '@/types/settings';
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 
