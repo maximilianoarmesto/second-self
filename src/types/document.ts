@@ -5,7 +5,7 @@ export interface DocumentChunk {
   documentId: number;
   chunkIndex: number;
   pageNumber: number;
-  /** Document title stored at ingestion time for rich source citations. */
+  /** Human-readable document title derived from the original filename. */
   documentTitle: string;
   content: string;
   createdAt: string;

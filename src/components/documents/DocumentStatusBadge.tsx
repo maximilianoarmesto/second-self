@@ -11,7 +11,7 @@ const STATUS_CONFIG: Record<
   string,
   {
     label: string;
-    variant: 'default' | 'outline';
+    variant: 'default' | 'outline' | 'destructive';
     icon: React.ReactNode;
   }
 > = {
@@ -47,12 +47,12 @@ const STATUS_CONFIG: Record<
   },
   FAILED: {
     label: 'Failed',
-    variant: 'default',
+    variant: 'destructive',
     icon: <XCircle className="w-3 h-3" />,
   },
   failed: {
     label: 'Failed',
-    variant: 'default',
+    variant: 'destructive',
     icon: <XCircle className="w-3 h-3" />,
   },
 };

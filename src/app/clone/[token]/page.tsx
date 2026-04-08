@@ -29,7 +29,7 @@ export default function PublicClonePage() {
 
   const [validating, setValidating] = useState(true);
   const [valid, setValid] = useState(false);
-  const [cloneName, setCloneName] = useState('');
+  const [cloneName, setCloneName] = useState('Second Self');
   const [messages, setMessages] = useState<CloneMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -55,7 +55,7 @@ export default function PublicClonePage() {
         if (res.ok) {
           const data = await res.json();
           setValid(true);
-          setCloneName(data.cloneName ?? 'Anonymous');
+          setCloneName(data.cloneName || 'Second Self');
         } else {
           setValid(false);
         }
@@ -91,7 +91,14 @@ export default function PublicClonePage() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to get response');
+        let errMsg = `Request failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.error) errMsg = body.error;
+        } catch {
+          // ignore JSON parse error — use the generic message
+        }
+        throw new Error(errMsg);
       }
 
       const data = await res.json();
@@ -108,13 +115,17 @@ export default function PublicClonePage() {
           content: data.message ?? data.content ?? 'Sorry, I could not generate a response.',
         },
       ]);
-    } catch {
+    } catch (err: unknown) {
+      const errorContent =
+        err instanceof Error
+          ? `Sorry, something went wrong: ${err.message}`
+          : 'Sorry, something went wrong. Please try again.';
       setMessages((prev) => [
         ...prev,
         {
           id: `e-${Date.now()}`,
           role: 'assistant',
-          content: 'Sorry, something went wrong. Please try again.',
+          content: errorContent,
         },
       ]);
     } finally {
@@ -160,7 +171,7 @@ export default function PublicClonePage() {
 
   // ---- Valid — show chat ----
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="h-screen bg-white flex flex-col overflow-hidden">
       {/* Header */}
       <header className="border-b border-gray-200 bg-white px-4 py-3 flex-shrink-0">
         <div className="max-w-3xl mx-auto flex items-center gap-3">

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import type { SettingsData } from '@/types/settings';
 
-// The core first-person persona rules are always injected by buildSystemPrompt()
-// in the RAG service. The DEFAULT_SYSTEM_PROMPT stored here serves as
-// *additional* persona instructions (e.g. tone, style notes, biographical
-// details) that are appended after those rules.
-// Keeping it empty by default lets users start fresh and add their own notes.
-const DEFAULT_SYSTEM_PROMPT = '';
+// The default system prompt is stored in Settings as the operator-supplied
+// "custom prompt" extension.  The strict first-person persona rules (identity,
+// knowledge-base grounding, refusal to hallucinate) are always enforced by
+// buildSystemPrompt() in rag-service and cannot be overridden from here.
+// This value only controls *tone and style* — it is appended after the base
+// constraints, not instead of them.
+const DEFAULT_SYSTEM_PROMPT =
+  'Infer tone, style, and manner of expression from the provided knowledge base context. ' +
+  'Be natural, personal, and human. Do not sound robotic.';
 
 export async function GET() {
   try {
@@ -33,8 +37,9 @@ export async function GET() {
       });
     }
 
-    // Return a masked version of the API key so the client knows one is stored
-    const { openaiApiKeyEncrypted, ...rest } = settings as any;
+    // Return a masked version of the API key so the client knows one is stored.
+    // avatarUrl is included explicitly so the contract is clear to callers.
+    const { openaiApiKeyEncrypted, ...rest } = settings;
     const maskedKey =
       openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
         ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
@@ -42,7 +47,13 @@ export async function GET() {
           ? '••••••••'
           : null;
 
-    return NextResponse.json({ ...rest, openaiApiKeyMasked: maskedKey });
+    const response: SettingsData = {
+      ...rest,
+      avatarUrl: settings.avatarUrl ?? null,
+      openaiApiKeyMasked: maskedKey,
+    };
+
+    return NextResponse.json(response);
   } catch (error: any) {
     console.error('Error fetching settings:', error);
     return NextResponse.json(
@@ -57,13 +68,27 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { cloneName, systemPrompt, tone, responseLength, openaiApiKey } = body;
 
-    // Build update data, only including provided fields
+    // Ensure the owner row exists before upserting settings (the settings table
+    // has a foreign-key constraint on owner_id).  Using upsert here avoids a
+    // race condition where a concurrent GET already created the row.
+    await prisma.owner.upsert({
+      where: { id: 1 },
+      update: cloneName !== undefined ? { cloneName } : {},
+      create: { id: 1, cloneName: cloneName || 'My Second Self' },
+    });
+
+    // Build update data, only including provided fields.
+    // openaiApiKey === null explicitly clears the stored server key.
+    // openaiApiKey === undefined means the field was not sent (no change).
     const updateData: Record<string, any> = {};
     if (cloneName !== undefined) updateData.cloneName = cloneName;
     if (systemPrompt !== undefined) updateData.systemPrompt = systemPrompt;
     if (tone !== undefined) updateData.tone = tone;
     if (responseLength !== undefined) updateData.responseLength = responseLength;
-    if (openaiApiKey !== undefined) updateData.openaiApiKeyEncrypted = openaiApiKey;
+    if (openaiApiKey !== undefined) {
+      // null clears the key; any string value sets it
+      updateData.openaiApiKeyEncrypted = openaiApiKey ?? null;
+    }
 
     const settings = await prisma.settings.upsert({
       where: { ownerId: 1 },
@@ -78,15 +103,24 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // If cloneName is provided, also update the Owner record
-    if (cloneName !== undefined) {
-      await prisma.owner.update({
-        where: { id: 1 },
-        data: { cloneName },
-      });
-    }
+    // Strip the raw API key from the response for security — the client only
+    // needs to know whether a key is stored (via the masked representation).
+    // avatarUrl is included explicitly so the contract is clear to callers.
+    const { openaiApiKeyEncrypted, ...rest } = settings;
+    const maskedKey =
+      openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
+        ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
+        : openaiApiKeyEncrypted
+          ? '••••••••'
+          : null;
 
-    return NextResponse.json(settings);
+    const response: SettingsData = {
+      ...rest,
+      avatarUrl: settings.avatarUrl ?? null,
+      openaiApiKeyMasked: maskedKey,
+    };
+
+    return NextResponse.json(response);
   } catch (error: any) {
     console.error('Error updating settings:', error);
     return NextResponse.json(
