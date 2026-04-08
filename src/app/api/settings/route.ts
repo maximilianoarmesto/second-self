@@ -120,7 +120,16 @@ export async function PUT(request: NextRequest) {
       openaiApiKeyMasked: maskedKey,
     };
 
-    return NextResponse.json(response);
+    // Never return the raw API key — mask it the same way as the GET handler
+    const { openaiApiKeyEncrypted, ...rest } = settings as any;
+    const maskedKey =
+      openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
+        ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
+        : openaiApiKeyEncrypted
+          ? '••••••••'
+          : null;
+
+    return NextResponse.json({ ...rest, openaiApiKeyMasked: maskedKey });
   } catch (error: any) {
     console.error('Error updating settings:', error);
     return NextResponse.json(

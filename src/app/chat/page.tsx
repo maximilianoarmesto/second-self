@@ -76,6 +76,10 @@ export default function ChatPage() {
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
 
+  // When true, the load-messages effect should skip its fetch because
+  // sendMessage already populated the message list optimistically.
+  const skipNextMessageLoadRef = useRef(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -115,6 +119,13 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
+      return;
+    }
+
+    // sendMessage populates messages optimistically when creating a new
+    // session. Skip the redundant fetch to prevent a flash/overwrite.
+    if (skipNextMessageLoadRef.current) {
+      skipNextMessageLoadRef.current = false;
       return;
     }
 
@@ -306,17 +317,6 @@ export default function ChatPage() {
         body: JSON.stringify({ ...payload, showSources }),
       });
 
-      // If this was a new session, refresh session list to get the auto-generated title
-      if (!activeSessionId && response.sessionId) {
-        setActiveSessionId(response.sessionId);
-        const updatedSessions = await apiFetch<ChatSession[]>('/api/chat/sessions');
-        setSessions(updatedSessions);
-      } else if (activeSessionId && response.sessionId) {
-        // Refresh session list to pick up updated title / timestamp
-        const updatedSessions = await apiFetch<ChatSession[]>('/api/chat/sessions');
-        setSessions(updatedSessions);
-      }
-
       const assistantMessage: ChatMessage = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
@@ -326,6 +326,21 @@ export default function ChatPage() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+
+      // If this was a new session, update the active session and sidebar
+      // without triggering the load-messages effect (messages are already set).
+      if (!activeSessionId && response.sessionId) {
+        // Signal the effect to skip the next fetch triggered by the session ID change
+        skipNextMessageLoadRef.current = true;
+        setActiveSessionId(response.sessionId);
+        // Refresh the session list to pick up the auto-generated title
+        try {
+          const updatedSessions = await apiFetch<ChatSession[]>('/api/chat/sessions');
+          setSessions(updatedSessions);
+        } catch {
+          // Non-critical — sidebar will be slightly stale but chat works fine
+        }
+      }
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Something went wrong';
       setMessages((prev) => [

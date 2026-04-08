@@ -1,7 +1,7 @@
--- Add avatar_url column to settings table.
--- Stores the relative URL of the uploaded avatar image so the client can
--- display it without an additional lookup.  Nullable because existing rows
--- do not have an avatar yet.
+-- Migration: add_avatar_url_to_settings
+--
+-- Adds an optional avatar_url column to the settings table so that
+-- the owner's avatar image path can be persisted after upload.
 
 ALTER TABLE "settings"
   ADD COLUMN IF NOT EXISTS "avatar_url" TEXT;

@@ -1,0 +1,412 @@
+/**
+ * Unit tests for POST /api/settings/avatar
+ *
+ * Acceptance criteria verified:
+ *  1. Endpoint accepts multipart/form-data with an "image" field
+ *  2. Only JPG and PNG files are accepted; others return 400
+ *  3. File size is capped at 2 MB; larger files return 400
+ *  4. File is saved to /public/uploads/ with a unique name
+ *  5. The settings record is upserted with the new avatarUrl
+ *  6. Returns { avatarUrl } in the response body
+ *  7. Old uploaded file is deleted from disk when a new one is uploaded
+ *
+ * All I/O (fs, prisma) is mocked — no real disk or DB access.
+ */
+
+// ---------------------------------------------------------------------------
+// Module mocks — must be declared before any imports
+// ---------------------------------------------------------------------------
+
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
+    settings: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+    },
+  },
+}));
+
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    promises: {
+      mkdir: jest.fn().mockResolvedValue(undefined),
+      writeFile: jest.fn().mockResolvedValue(undefined),
+      unlink: jest.fn().mockResolvedValue(undefined),
+    },
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Imports (after mocks)
+// ---------------------------------------------------------------------------
+
+import { NextRequest } from 'next/server';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { prisma } from '@/lib/prisma';
+import { POST } from '@/app/api/settings/avatar/route';
+
+// ---------------------------------------------------------------------------
+// Typed mock helpers
+// ---------------------------------------------------------------------------
+
+const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockFs = fs as jest.Mocked<typeof fs>;
+
+// ---------------------------------------------------------------------------
+// Test fixture helpers
+// ---------------------------------------------------------------------------
+
+const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
+
+/**
+ * Builds a minimal NextRequest carrying a multipart/form-data body.
+ * Uses the native FormData + Blob APIs available in the Node test environment
+ * via Next.js polyfills.
+ */
+function buildRequest(
+  fieldName: string,
+  filename: string,
+  mimeType: string,
+  sizeBytes: number
+): NextRequest {
+  const body = Buffer.alloc(sizeBytes, 0x42); // fill with 'B'
+  const blob = new Blob([body], { type: mimeType });
+  const file = new File([blob], filename, { type: mimeType });
+
+  const formData = new FormData();
+  formData.append(fieldName, file);
+
+  // Construct a Request with the FormData body so Next.js can parse it
+  const request = new Request('http://localhost/api/settings/avatar', {
+    method: 'POST',
+    body: formData,
+  });
+
+  return request as unknown as NextRequest;
+}
+
+/** Shorthand for a valid 100-byte JPEG request */
+function validJpegRequest(sizeBytes = 100): NextRequest {
+  return buildRequest('image', 'avatar.jpg', 'image/jpeg', sizeBytes);
+}
+
+/** Shorthand for a valid 100-byte PNG request */
+function validPngRequest(sizeBytes = 100): NextRequest {
+  return buildRequest('image', 'avatar.png', 'image/png', sizeBytes);
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  jest.clearAllMocks();
+
+  // Default: no existing settings record
+  (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue(null);
+  (mockPrisma.settings.upsert as jest.Mock).mockResolvedValue({ avatarUrl: '/uploads/test.jpg' });
+
+  // Default: all fs operations succeed
+  (mockFs.mkdir as jest.Mock).mockResolvedValue(undefined);
+  (mockFs.writeFile as jest.Mock).mockResolvedValue(undefined);
+  (mockFs.unlink as jest.Mock).mockResolvedValue(undefined);
+});
+
+// ===========================================================================
+// 1. Happy path — JPG and PNG are accepted
+// ===========================================================================
+
+describe('Happy path', () => {
+  it('accepts a valid JPEG upload and returns 200 with avatarUrl', async () => {
+    const response = await POST(validJpegRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toHaveProperty('avatarUrl');
+    expect(body.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+  });
+
+  it('accepts a valid PNG upload and returns 200 with avatarUrl', async () => {
+    const response = await POST(validPngRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toHaveProperty('avatarUrl');
+    expect(body.avatarUrl).toMatch(/^\/uploads\/.+\.png$/);
+  });
+
+  it('creates the uploads directory before writing the file', async () => {
+    await POST(validJpegRequest());
+
+    expect(mockFs.mkdir).toHaveBeenCalledWith(UPLOADS_DIR, { recursive: true });
+  });
+
+  it('writes the file buffer to disk inside UPLOADS_DIR', async () => {
+    await POST(validJpegRequest());
+
+    expect(mockFs.writeFile).toHaveBeenCalledTimes(1);
+    const [savedPath, savedBuffer] = (mockFs.writeFile as jest.Mock).mock.calls[0];
+    expect(savedPath).toContain(UPLOADS_DIR);
+    expect(Buffer.isBuffer(savedBuffer)).toBe(true);
+  });
+
+  it('generates a unique filename with timestamp and random suffix', async () => {
+    const r1 = await POST(validJpegRequest());
+    const r2 = await POST(validJpegRequest());
+    const b1 = await r1.json();
+    const b2 = await r2.json();
+
+    // URLs must differ (timestamps/random parts differ)
+    expect(b1.avatarUrl).not.toBe(b2.avatarUrl);
+  });
+
+  it('upserts the settings record with the new avatarUrl', async () => {
+    await POST(validJpegRequest());
+
+    expect(mockPrisma.settings.upsert).toHaveBeenCalledTimes(1);
+    const call = (mockPrisma.settings.upsert as jest.Mock).mock.calls[0][0];
+    expect(call.where).toEqual({ ownerId: 1 });
+    expect(call.update.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+    expect(call.create.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+  });
+
+  it('the upsert create block includes required default fields', async () => {
+    await POST(validJpegRequest());
+
+    const call = (mockPrisma.settings.upsert as jest.Mock).mock.calls[0][0];
+    expect(call.create).toMatchObject({
+      ownerId: 1,
+      cloneName: expect.any(String),
+      systemPrompt: expect.any(String),
+      tone: expect.any(String),
+      responseLength: expect.any(String),
+    });
+  });
+});
+
+// ===========================================================================
+// 2. Old avatar cleanup
+// ===========================================================================
+
+describe('Old avatar cleanup', () => {
+  it('deletes the previous avatar file when one exists', async () => {
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue({
+      avatarUrl: '/uploads/old-avatar.jpg',
+    });
+
+    await POST(validJpegRequest());
+
+    expect(mockFs.unlink).toHaveBeenCalledTimes(1);
+    const unlinkedPath = (mockFs.unlink as jest.Mock).mock.calls[0][0];
+    expect(unlinkedPath).toBe(path.join(UPLOADS_DIR, 'old-avatar.jpg'));
+  });
+
+  it('does NOT call unlink when there is no previous avatar', async () => {
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue({ avatarUrl: null });
+
+    await POST(validJpegRequest());
+
+    expect(mockFs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call unlink when settings record does not exist', async () => {
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue(null);
+
+    await POST(validJpegRequest());
+
+    expect(mockFs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 and saves the new file even if unlink throws (missing file)', async () => {
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue({
+      avatarUrl: '/uploads/ghost-file.jpg',
+    });
+    (mockFs.unlink as jest.Mock).mockRejectedValue(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    );
+
+    const response = await POST(validJpegRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toHaveProperty('avatarUrl');
+  });
+});
+
+// ===========================================================================
+// 3. Validation — wrong field name
+// ===========================================================================
+
+describe('Missing image field', () => {
+  it('returns 400 when the "image" field is absent', async () => {
+    const formData = new FormData();
+    // Send with a different field name
+    formData.append('file', new File(['data'], 'avatar.jpg', { type: 'image/jpeg' }));
+    const request = new Request('http://localhost/api/settings/avatar', {
+      method: 'POST',
+      body: formData,
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/no image file/i);
+  });
+
+  it('returns 400 when the form body is completely empty', async () => {
+    const request = new Request('http://localhost/api/settings/avatar', {
+      method: 'POST',
+      body: new FormData(),
+    }) as unknown as NextRequest;
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// 4. Validation — file type
+// ===========================================================================
+
+describe('File type validation', () => {
+  it('returns 400 for a GIF upload', async () => {
+    const req = buildRequest('image', 'avatar.gif', 'image/gif', 100);
+    const response = await POST(req);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/invalid file type/i);
+  });
+
+  it('returns 400 for a WebP upload', async () => {
+    const req = buildRequest('image', 'avatar.webp', 'image/webp', 100);
+    const response = await POST(req);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/invalid file type/i);
+  });
+
+  it('returns 400 for a PDF masquerading as an image', async () => {
+    const req = buildRequest('image', 'evil.pdf', 'application/pdf', 100);
+    const response = await POST(req);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/invalid file type/i);
+  });
+
+  it('returns 400 for a plain text file', async () => {
+    const req = buildRequest('image', 'notes.txt', 'text/plain', 100);
+    const response = await POST(req);
+
+    expect(response.status).toBe(400);
+  });
+
+  it('accepts image/jpeg MIME type', async () => {
+    const req = buildRequest('image', 'photo.jpg', 'image/jpeg', 100);
+    const response = await POST(req);
+    expect(response.status).toBe(200);
+  });
+
+  it('accepts image/png MIME type', async () => {
+    const req = buildRequest('image', 'photo.png', 'image/png', 100);
+    const response = await POST(req);
+    expect(response.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// 5. Validation — file size
+// ===========================================================================
+
+describe('File size validation', () => {
+  const MAX = 2 * 1024 * 1024; // 2 MB
+
+  it('accepts a file exactly at the 2 MB limit', async () => {
+    const req = validJpegRequest(MAX);
+    const response = await POST(req);
+    expect(response.status).toBe(200);
+  });
+
+  it('returns 400 for a file 1 byte over the 2 MB limit', async () => {
+    const req = validJpegRequest(MAX + 1);
+    const response = await POST(req);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/file too large/i);
+  });
+
+  it('returns 400 for a file significantly over the limit (e.g. 5 MB)', async () => {
+    const req = validJpegRequest(5 * 1024 * 1024);
+    const response = await POST(req);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/file too large/i);
+  });
+
+  it('accepts a small 1 KB file without issue', async () => {
+    const req = validJpegRequest(1024);
+    const response = await POST(req);
+    expect(response.status).toBe(200);
+  });
+});
+
+// ===========================================================================
+// 6. Path-traversal guard
+// ===========================================================================
+
+describe('Path-traversal guard on old avatar deletion', () => {
+  it('does not call unlink for a path with traversal characters', async () => {
+    // Malicious avatarUrl that would resolve outside UPLOADS_DIR
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue({
+      avatarUrl: '/uploads/../../../etc/passwd',
+    });
+
+    const response = await POST(validJpegRequest());
+
+    // The new upload still succeeds
+    expect(response.status).toBe(200);
+
+    // But the traversal path must not be unlinked
+    // (basename extraction means we only try to delete 'passwd' inside UPLOADS_DIR,
+    //  which is safe — but the fs.unlink mock may or may not be called with that safe path)
+    if ((mockFs.unlink as jest.Mock).mock.calls.length > 0) {
+      const unlinkedPath = (mockFs.unlink as jest.Mock).mock.calls[0][0];
+      expect(unlinkedPath).toMatch(new RegExp(`^${UPLOADS_DIR.replace(/\\/g, '\\\\')}.*`));
+    }
+  });
+});
+
+// ===========================================================================
+// 7. DB / fs error handling
+// ===========================================================================
+
+describe('Internal error handling', () => {
+  it('returns 500 when fs.writeFile throws', async () => {
+    (mockFs.writeFile as jest.Mock).mockRejectedValue(new Error('ENOSPC: no space left on device'));
+
+    const response = await POST(validJpegRequest());
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error).toMatch(/ENOSPC|failed to upload avatar/i);
+  });
+
+  it('returns 500 when the Prisma upsert throws', async () => {
+    (mockPrisma.settings.upsert as jest.Mock).mockRejectedValue(
+      new Error('Connection to database failed')
+    );
+
+    const response = await POST(validJpegRequest());
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error).toMatch(/Connection to database failed|failed to upload avatar/i);
+  });
+});

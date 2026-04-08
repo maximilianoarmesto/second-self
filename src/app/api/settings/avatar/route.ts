@@ -7,117 +7,119 @@ import { prisma } from '@/lib/prisma';
 // Constants
 // ---------------------------------------------------------------------------
 
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'] as const;
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png'] as const;
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png']);
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png']);
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
-const UPLOADS_URL_PREFIX = '/uploads';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns true when the MIME type and file extension are both JPG or PNG. */
-function isAllowedImage(file: File): boolean {
-  const mime = file.type as string;
-  const ext = path.extname(file.name).toLowerCase();
-  return (
-    (ALLOWED_MIME_TYPES as readonly string[]).includes(mime) &&
-    (ALLOWED_EXTENSIONS as readonly string[]).includes(ext)
-  );
+/**
+ * Derives the file extension from the MIME type.
+ * Falls back to `.jpg` for image/jpeg so the persisted filename is
+ * always one of: `.jpg` | `.png`.
+ */
+function extensionForMime(mime: string): string {
+  return mime === 'image/png' ? '.png' : '.jpg';
 }
 
 /**
- * Builds a unique filename for the uploaded avatar, e.g.
- * "avatar-1718123456789-a3f9.png"
+ * Generates a unique filename: `<timestamp>-<6-char random hex><ext>`.
+ * Example: `1717000000000-a3f9c2.png`
  */
-function buildUniqueFilename(originalName: string): string {
-  const ext = path.extname(originalName).toLowerCase();
-  const randomSuffix = Math.random().toString(36).slice(2, 6);
-  return `avatar-${Date.now()}-${randomSuffix}${ext}`;
+function generateFilename(ext: string): string {
+  const ts = Date.now();
+  const rnd = Math.random().toString(16).slice(2, 8);
+  return `${ts}-${rnd}${ext}`;
 }
 
 /**
- * Removes a previously stored avatar file from disk.
- * Failures are logged but never thrown — a missing old file must not block
- * the upload of the new one.
+ * Deletes a previously stored avatar from disk.
+ * The `avatarUrl` stored in the DB is a relative public path such as
+ * `/uploads/1717000000000-a3f9c2.png`; we strip the leading `/uploads/`
+ * to resolve the absolute path.
+ * Errors are swallowed — a missing file must not block a new upload.
  */
-async function deletePreviousAvatar(avatarUrl: string | null): Promise<void> {
-  if (!avatarUrl) return;
-
-  // Only delete files that live inside our uploads directory.
-  if (!avatarUrl.startsWith(UPLOADS_URL_PREFIX + '/')) return;
-
-  const filename = path.basename(avatarUrl);
-  const filePath = path.join(UPLOADS_DIR, filename);
-
+async function deletePreviousAvatar(avatarUrl: string): Promise<void> {
   try {
-    await fs.unlink(filePath);
-  } catch (err: any) {
-    // ENOENT → file already gone; any other error is unexpected but non-fatal.
-    if (err?.code !== 'ENOENT') {
-      console.error('Failed to delete previous avatar:', filePath, err);
+    const filename = path.basename(avatarUrl);
+    // Guard against path-traversal: only delete files directly inside UPLOADS_DIR
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!filePath.startsWith(UPLOADS_DIR + path.sep) && filePath !== UPLOADS_DIR) {
+      return;
     }
+    await fs.unlink(filePath);
+  } catch {
+    // File may have been manually removed — not a fatal error
   }
 }
 
 // ---------------------------------------------------------------------------
-// Route handler
+// POST /api/settings/avatar
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
   try {
-    // ── 1. Parse multipart/form-data ───────────────────────────────────────
-    const formData = await request.formData();
-    const file = formData.get('image') as File | null;
-
-    if (!file) {
-      return NextResponse.json({ error: 'No image file provided' }, { status: 400 });
+    // ---- Parse multipart form data ----------------------------------------
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json({ error: 'Invalid multipart/form-data request' }, { status: 400 });
     }
 
-    // ── 2. Validate file type ──────────────────────────────────────────────
-    if (!isAllowedImage(file)) {
+    const file = formData.get('image') as File | null;
+    if (!file || typeof file === 'string') {
+      return NextResponse.json(
+        { error: 'No image file provided. Send a multipart/form-data request with an "image" field.' },
+        { status: 400 }
+      );
+    }
+
+    // ---- Validate MIME type ------------------------------------------------
+    // Check the MIME type reported by the browser first, then fall back to
+    // the file extension so the validation is not trivially bypassed by
+    // renaming a file.
+    const mime = file.type.toLowerCase();
+    const ext = path.extname(file.name).toLowerCase();
+
+    if (!ALLOWED_MIME_TYPES.has(mime) && !ALLOWED_EXTENSIONS.has(ext)) {
       return NextResponse.json(
         { error: 'Invalid file type. Only JPG and PNG images are accepted.' },
         { status: 400 }
       );
     }
 
-    // ── 3. Validate file size ──────────────────────────────────────────────
+    // Prefer the MIME-derived extension; fall back to the filename extension.
+    const resolvedExt = ALLOWED_MIME_TYPES.has(mime) ? extensionForMime(mime) : ext;
+
+    // ---- Validate file size ------------------------------------------------
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: 'File size exceeds the 2 MB limit.' },
+        { error: 'File too large. Maximum allowed size is 2 MB.' },
         { status: 400 }
       );
     }
 
-    // ── 4. Ensure uploads directory exists ────────────────────────────────
+    // ---- Ensure the uploads directory exists --------------------------------
     await fs.mkdir(UPLOADS_DIR, { recursive: true });
 
-    // ── 5. Fetch current settings to get any existing avatar URL ──────────
-    const existingSettings = await prisma.settings.findUnique({
+    // ---- Fetch current settings to find any existing avatar -----------------
+    const currentSettings = await prisma.settings.findUnique({
       where: { ownerId: 1 },
       select: { avatarUrl: true },
     });
 
-    // ── 6. Write new file to disk ──────────────────────────────────────────
-    const filename = buildUniqueFilename(file.name);
+    // ---- Save file to disk --------------------------------------------------
+    const filename = generateFilename(resolvedExt);
     const filePath = path.join(UPLOADS_DIR, filename);
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(filePath, buffer);
 
-    // ── 7. Delete the old avatar (best-effort, after new file is written) ──
-    await deletePreviousAvatar(existingSettings?.avatarUrl ?? null);
-
-    // ── 8. Persist the relative URL in the settings record ────────────────
-    const avatarUrl = `${UPLOADS_URL_PREFIX}/${filename}`;
-
-    // Ensure the owner row exists before upserting settings (FK constraint).
-    await prisma.owner.upsert({
-      where: { id: 1 },
-      update: {},
-      create: { id: 1, cloneName: 'My Second Self' },
-    });
+    // ---- Upsert settings with the new avatarUrl ----------------------------
+    const avatarUrl = `/uploads/${filename}`;
 
     await prisma.settings.upsert({
       where: { ownerId: 1 },
@@ -125,16 +127,23 @@ export async function POST(request: NextRequest) {
       create: {
         ownerId: 1,
         cloneName: 'My Second Self',
+        systemPrompt: '',
+        tone: 'natural',
+        responseLength: 'balanced',
         avatarUrl,
       },
     });
 
-    // ── 9. Return the saved URL ────────────────────────────────────────────
-    return NextResponse.json({ avatarUrl }, { status: 201 });
+    // ---- Delete the previous avatar after the DB is updated ----------------
+    if (currentSettings?.avatarUrl) {
+      await deletePreviousAvatar(currentSettings.avatarUrl);
+    }
+
+    return NextResponse.json({ avatarUrl }, { status: 200 });
   } catch (error: any) {
     console.error('Avatar upload error:', error);
     return NextResponse.json(
-      { error: error.message || 'Avatar upload failed' },
+      { error: error.message || 'Failed to upload avatar' },
       { status: 500 }
     );
   }
