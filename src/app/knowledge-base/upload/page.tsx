@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, FileText, Loader2, Upload, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
-import { getStoredApiKey } from '@/lib/api';
-import type { DocumentUploadResponse } from '@/types/document';
+import { apiFetch, getStoredApiKey } from '@/lib/api';
+import type { DocumentStatus, DocumentUploadResponse } from '@/types/document';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +30,9 @@ interface UploadFile {
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = ['application/pdf'];
+
+/** Interval (ms) to poll individual document status while PENDING / PROCESSING. */
+const STATUS_POLL_INTERVAL_MS = 4000;
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -179,6 +182,23 @@ export default function UploadPage() {
   };
 
   const uploadAll = () => {
+    // Warn early if there is no API key — the server will reject the request
+    // anyway, but surfacing the error before XHR starts is cleaner UX.
+    if (!getStoredApiKey()) {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.state === 'idle'
+            ? {
+                ...f,
+                state: 'error',
+                errorMessage:
+                  'OpenAI API key is required. Please configure it in Settings before uploading.',
+              }
+            : f
+        )
+      );
+      return;
+    }
     const pending = files.filter((f) => f.state === 'idle');
     pending.forEach(uploadFile);
   };
@@ -186,6 +206,50 @@ export default function UploadPage() {
   const removeFile = (id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
+
+  // ---- Poll status for successfully-uploaded but still-processing documents ----
+  //
+  // After upload, the server returns status PENDING and begins ingestion
+  // asynchronously.  We poll individual document status endpoints until
+  // every uploaded doc reaches a terminal state (COMPLETED or FAILED).
+
+  useEffect(() => {
+    // Collect files that were uploaded but still awaiting terminal status.
+    const inProgress = files.filter(
+      (f) =>
+        f.state === 'success' &&
+        f.result !== null &&
+        (f.result.status === 'PENDING' || f.result.status === 'PROCESSING')
+    );
+
+    if (inProgress.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      // Fetch the list (returns summaries without chunks — lighter than GET /id).
+      let allDocs: Array<{ id: number; status: DocumentStatus }> = [];
+      try {
+        allDocs = await apiFetch<Array<{ id: number; status: DocumentStatus }>>('/api/documents');
+      } catch {
+        // If the list fetch fails, leave statuses unchanged and retry next tick.
+        return;
+      }
+
+      const updates: Array<{ id: string; status: DocumentStatus }> = inProgress.map((f) => {
+        const match = allDocs.find((d) => d.id === f.result!.id);
+        return { id: f.id, status: match ? match.status : f.result!.status };
+      });
+
+      setFiles((prev) =>
+        prev.map((f) => {
+          const update = updates.find((u) => u.id === f.id);
+          if (!update || !f.result) return f;
+          return { ...f, result: { ...f.result, status: update.status } };
+        })
+      );
+    }, STATUS_POLL_INTERVAL_MS);
+
+    return () => clearTimeout(timer);
+  }, [files]);
 
   // ---- Derived state ----
 
@@ -313,6 +377,11 @@ interface FileRowProps {
 }
 
 function FileRow({ item, onRemove, onRetry }: FileRowProps) {
+  const isProcessing =
+    item.state === 'success' &&
+    item.result !== null &&
+    (item.result.status === 'PENDING' || item.result.status === 'PROCESSING');
+
   return (
     <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
       {/* Icon */}
@@ -345,8 +414,11 @@ function FileRow({ item, onRemove, onRetry }: FileRowProps) {
 
         {/* Result status */}
         {item.state === 'success' && item.result && (
-          <div className="mt-1.5">
+          <div className="mt-1.5 flex items-center gap-2">
             <DocumentStatusBadge status={item.result.status} />
+            {isProcessing && (
+              <span className="text-xs text-gray-500">Processing&hellip;</span>
+            )}
           </div>
         )}
 

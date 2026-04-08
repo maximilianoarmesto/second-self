@@ -16,8 +16,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
-import { apiFetch } from '@/lib/api';
-import type { DocumentDetail, DocumentSummary, ReprocessResponse } from '@/types/document';
+import { apiFetch, getStoredApiKey } from '@/lib/api';
+import type { DocumentDetail, DocumentSummary } from '@/types/document';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,8 +39,8 @@ function formatDate(iso: string): string {
   });
 }
 
-/** Poll every 5 seconds when there are in-flight documents. */
-const POLL_INTERVAL_MS = 5000;
+/** Interval (ms) used to auto-poll when any document is still PENDING or PROCESSING. */
+const POLL_INTERVAL_MS = 4000;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -56,21 +56,50 @@ export default function KnowledgeBasePage() {
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [reprocessingId, setReprocessingId] = useState<number | null>(null);
-  const [reprocessError, setReprocessError] = useState<string | null>(null);
-
+  const reprocessInputRef = useRef<HTMLInputElement>(null);
+  const reprocessTargetId = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- Fetch list (silent = don't show spinner on background polls) ----
 
   const fetchDocuments = useCallback(async (silent = false) => {
-    if (!silent) setIsLoading(true);
-    setError(null);
+    if (!silent) {
+      setIsLoading(true);
+      setError(null);
+    }
     try {
       const data = await apiFetch<DocumentSummary[]>('/api/documents');
-      setDocuments(data);
+
+      // Collect IDs of documents whose status has changed so we can
+      // invalidate their cached detail entries.  We read the current
+      // documents value via a functional updater to avoid a stale-closure
+      // dependency, then apply both state updates in the same React batch.
+      setDocuments((prev) => {
+        const changedIds = new Set(
+          data
+            .filter((d) => {
+              const old = prev.find((p) => p.id === d.id);
+              return old && old.status !== d.status;
+            })
+            .map((d) => d.id)
+        );
+
+        // Invalidate detail cache for docs whose status changed.
+        // This is intentionally a separate state update — React 18 batches
+        // state updates that originate from the same event/microtask, so
+        // this produces a single re-render alongside the documents update.
+        if (changedIds.size > 0) {
+          setDetailMap((detailPrev) => {
+            const next = { ...detailPrev };
+            changedIds.forEach((id) => delete next[id]);
+            return next;
+          });
+        }
+
+        return data;
+      });
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to load documents. Please try again.';
+      const message = err instanceof Error ? err.message : 'Failed to load documents. Please try again.';
       if (!silent) setError(message);
     } finally {
       if (!silent) setIsLoading(false);
@@ -82,21 +111,20 @@ export default function KnowledgeBasePage() {
   }, [fetchDocuments]);
 
   // ---- Auto-poll while any document is PENDING or PROCESSING ----
-
   useEffect(() => {
-    const hasPending = documents.some((d) => d.status === 'PENDING' || d.status === 'PROCESSING');
+    const hasInProgress = documents.some(
+      (d) => d.status === 'PENDING' || d.status === 'PROCESSING'
+    );
 
-    if (hasPending) {
+    // Clear any existing timer before (re-)scheduling.
+    if (pollTimerRef.current !== null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
+    if (hasInProgress) {
       pollTimerRef.current = setTimeout(() => {
-        fetchDocuments(true);
-        // Invalidate detail cache for in-progress docs so chunks refresh too
-        setDetailMap((prev) => {
-          const next = { ...prev };
-          documents
-            .filter((d) => d.status === 'PENDING' || d.status === 'PROCESSING')
-            .forEach((d) => delete next[d.id]);
-          return next;
-        });
+        fetchDocuments(true /* silent */);
       }, POLL_INTERVAL_MS);
     }
 
@@ -183,11 +211,71 @@ export default function KnowledgeBasePage() {
     }
   };
 
-  // ---- Derived ----
+  // ---- Re-process ----
 
-  const hasPendingDocs = documents.some((d) => d.status === 'PENDING' || d.status === 'PROCESSING');
+  /**
+   * Triggered when the user picks a replacement PDF from the hidden file input.
+   * Sends the file to `POST /api/documents/[documentId]` and refreshes the list.
+   */
+  const handleReprocessFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const docId = reprocessTargetId.current;
+    const file = e.target.files?.[0];
+    // Reset the input immediately so the same file can be re-selected later.
+    e.target.value = '';
+
+    if (!docId || !file) return;
+
+    const apiKey = getStoredApiKey();
+    if (!apiKey) {
+      setError('OpenAI API key is required. Please configure it in Settings.');
+      return;
+    }
+
+    setReprocessingId(docId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/documents/${docId}`, {
+        method: 'POST',
+        headers: { 'x-openai-api-key': apiKey },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.error || `Re-processing failed (${response.status})`);
+      }
+
+      // Optimistically update status to PROCESSING in the list.
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === docId ? { ...d, status: 'PROCESSING' } : d))
+      );
+      // Invalidate cached detail so the expanded view refreshes on next open.
+      setDetailMap((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Re-processing failed. Please try again.';
+      setError(message);
+    } finally {
+      setReprocessingId(null);
+      reprocessTargetId.current = null;
+    }
+  };
+
+  const requestReprocess = (docId: number) => {
+    reprocessTargetId.current = docId;
+    reprocessInputRef.current?.click();
+  };
 
   // ---- Render ----
+
+  const hasInProgress = documents.some(
+    (d) => d.status === 'PENDING' || d.status === 'PROCESSING'
+  );
 
   return (
     <main className="container mx-auto p-6 max-w-4xl">
@@ -219,11 +307,11 @@ export default function KnowledgeBasePage() {
         </div>
       </div>
 
-      {/* Auto-poll notice */}
-      {hasPendingDocs && !isLoading && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-600">
-          <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
-          <span>Processing in progress — status updates automatically every few seconds.</span>
+      {/* Auto-polling indicator */}
+      {hasInProgress && !isLoading && (
+        <div className="mb-4 flex items-center gap-2 text-xs text-gray-500">
+          <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+          <span>Checking processing status automatically&hellip;</span>
         </div>
       )}
 
@@ -277,6 +365,15 @@ export default function KnowledgeBasePage() {
         </Card>
       )}
 
+      {/* Hidden file input for re-processing — shared across all rows */}
+      <input
+        ref={reprocessInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        className="hidden"
+        onChange={handleReprocessFileChange}
+      />
+
       {/* Document list */}
       {!isLoading && documents.length > 0 && (
         <div className="space-y-3">
@@ -325,7 +422,7 @@ export default function KnowledgeBasePage() {
               onDeleteRequest={() => setDeleteConfirm(doc.id)}
               onDeleteConfirm={() => handleDelete(doc.id)}
               onDeleteCancel={() => setDeleteConfirm(null)}
-              onReprocess={() => handleReprocess(doc.id)}
+              onReprocess={() => requestReprocess(doc.id)}
             />
           ))}
         </div>
@@ -368,7 +465,7 @@ function DocumentRow({
   onReprocess,
 }: DocumentRowProps) {
   const isConfirmingDelete = deleteConfirmId === doc.id;
-  const isBusy = isDeleting || isReprocessing;
+  const isBusy = isDeleting || isReprocessing || doc.status === 'PROCESSING';
 
   return (
     <Card className="overflow-hidden transition-shadow hover:shadow-md">
@@ -408,8 +505,11 @@ function DocumentRow({
           <DocumentStatusBadge status={doc.status} />
         </div>
 
-        {/* Action controls */}
-        <div className="flex-shrink-0 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+        {/* Action controls (re-process + delete) */}
+        <div
+          className="flex-shrink-0 flex items-center gap-2"
+          onClick={(e) => e.stopPropagation()}
+        >
           {isConfirmingDelete ? (
             <>
               <span className="text-xs text-black font-medium">Delete?</span>
@@ -434,16 +534,16 @@ function DocumentRow({
             </>
           ) : (
             <>
-              {/* Re-process button — only shown when the document can be re-ingested */}
-              {doc.canReprocess && (
+              {/* Re-process button — available for COMPLETED and FAILED docs */}
+              {(doc.status === 'COMPLETED' || doc.status === 'FAILED') && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0 text-gray-400 hover:text-black"
-                  disabled={isBusy || doc.status === 'PROCESSING' || doc.status === 'PENDING'}
+                  disabled={isBusy}
                   onClick={onReprocess}
-                  title="Re-process document with updated chunking strategy"
                   aria-label="Re-process document"
+                  title="Re-process: upload the PDF again to re-chunk with the latest settings"
                 >
                   {isReprocessing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -534,7 +634,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
                 {chunk.documentTitle && (
                   <>
                     <span>&middot;</span>
-                    <span className="truncate max-w-[200px]" title={chunk.documentTitle}>
+                    <span className="truncate max-w-[160px]" title={chunk.documentTitle}>
                       {chunk.documentTitle}
                     </span>
                   </>

@@ -11,6 +11,7 @@ import {
   FileText,
   Loader2,
   Trash2,
+  Pencil,
   Check,
   X,
 } from 'lucide-react';
@@ -19,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getStoredApiKey } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +37,8 @@ interface Source {
   /** Inline citation label matching the model's reply, e.g. "[Source 1]". */
   sourceLabel: string;
   filename: string;
+  /** Human-readable document title derived from the original filename. */
+  documentTitle?: string;
   chunkIndex: number;
   pageNumber: number;
   /** Short preview of the chunk used as a tooltip. */
@@ -63,13 +66,14 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Rename state
+  // Inline rename state
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [renameSaving, setRenameSaving] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // When true, the load-messages effect should skip its fetch because
@@ -103,10 +107,11 @@ export default function ChatPage() {
     loadSessions();
   }, []);
 
-  // Focus rename input when entering rename mode
+  // ---- Focus rename input when entering rename mode ----
   useEffect(() => {
     if (renamingId !== null) {
-      setTimeout(() => renameInputRef.current?.focus(), 0);
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
     }
   }, [renamingId]);
 
@@ -125,6 +130,8 @@ export default function ChatPage() {
     }
 
     async function loadMessages() {
+      setMessagesLoading(true);
+      setMessages([]); // Clear stale messages immediately to avoid flash of old content
       try {
         const session = await apiFetch<{ messages: any[] }>(
           `/api/chat/sessions/${activeSessionId}`
@@ -139,6 +146,8 @@ export default function ChatPage() {
         setMessages(msgs);
       } catch {
         setMessages([]);
+      } finally {
+        setMessagesLoading(false);
       }
     }
     loadMessages();
@@ -154,7 +163,7 @@ export default function ChatPage() {
 
   // ---- Select session ----
   const selectSession = (id: number) => {
-    if (renamingId !== null) return; // don't navigate while renaming
+    if (renamingId !== null) return; // Don't switch while renaming
     setActiveSessionId(id);
   };
 
@@ -204,8 +213,60 @@ export default function ChatPage() {
         setActiveSessionId(null);
         setMessages([]);
       }
+    } catch (err: unknown) {
+      setSessionError(err instanceof Error ? err.message : 'Failed to delete conversation.');
+      setTimeout(() => setSessionError(null), 4000);
+    }
+  };
+
+  // ---- Start rename ----
+  const startRename = (session: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(session.id);
+    setRenameValue(session.title);
+  };
+
+  // ---- Commit rename ----
+  const commitRename = async (id: number) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      cancelRename();
+      return;
+    }
+    // Optimistic update
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, title: trimmed } : s))
+    );
+    setRenamingId(null);
+    try {
+      await apiFetch(`/api/chat/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: trimmed }),
+      });
     } catch {
-      // silent
+      // Revert on failure by re-fetching sessions
+      try {
+        const updated = await apiFetch<ChatSession[]>('/api/chat/sessions');
+        setSessions(updated);
+      } catch {
+        // silent
+      }
+    }
+  };
+
+  // ---- Cancel rename ----
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameValue('');
+  };
+
+  // ---- Handle rename key events ----
+  const handleRenameKeyDown = (e: React.KeyboardEvent, id: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitRename(id);
+    } else if (e.key === 'Escape') {
+      cancelRename();
     }
   };
 
@@ -213,6 +274,22 @@ export default function ChatPage() {
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
+
+    // Guard: the backend requires an API key — catch this early to show a
+    // clear, actionable error instead of a generic "Request failed" message.
+    if (!getStoredApiKey()) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          role: 'assistant' as const,
+          content:
+            'No OpenAI API key found. Please add your key in **Settings** before chatting.',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: `temp-${Date.now()}`,
@@ -277,6 +354,9 @@ export default function ChatPage() {
       ]);
     } finally {
       setIsLoading(false);
+      // Restore focus to the input field so the user can type the next message
+      // without having to click the input again.
+      inputRef.current?.focus();
     }
   };
 
@@ -304,6 +384,20 @@ export default function ChatPage() {
           </Button>
         </div>
 
+        {/* Session-level error (delete/rename failures) */}
+        {sessionError && (
+          <div className="mx-2 mt-2 rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-black flex items-center gap-2">
+            <span className="flex-1">{sessionError}</span>
+            <button
+              onClick={() => setSessionError(null)}
+              className="text-gray-400 hover:text-black flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         {/* Session list */}
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1">
           {sessionsLoading ? (
@@ -318,80 +412,22 @@ export default function ChatPage() {
             </p>
           ) : (
             sessions.map((session) => (
-              <div
+              <SessionItem
                 key={session.id}
-                onClick={() => selectSession(session.id)}
-                className={cn(
-                  'group w-full text-left rounded-lg px-3 py-2.5 transition-colors cursor-pointer flex items-center gap-2',
-                  activeSessionId === session.id
-                    ? 'bg-gray-100 text-black'
-                    : 'text-black hover:bg-gray-100'
-                )}
-              >
-                {renamingId === session.id ? (
-                  // ---- Inline rename form ----
-                  <div
-                    className="flex-1 flex items-center gap-1 min-w-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      ref={renameInputRef}
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') confirmRename(session.id);
-                        if (e.key === 'Escape') cancelRename();
-                      }}
-                      className="flex-1 min-w-0 text-sm bg-white border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-black"
-                      aria-label="Rename session"
-                    />
-                    <button
-                      onClick={() => confirmRename(session.id)}
-                      disabled={renameSaving}
-                      className="flex-shrink-0 p-0.5 rounded text-gray-600 hover:text-black disabled:opacity-50"
-                      aria-label="Confirm rename"
-                    >
-                      {renameSaving ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Check className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                    <button
-                      onClick={cancelRename}
-                      disabled={renameSaving}
-                      className="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-black disabled:opacity-50"
-                      aria-label="Cancel rename"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  // ---- Normal session row ----
-                  <>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{session.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {new Date(session.updatedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => startRename(session.id, session.title, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
-                      aria-label="Rename session"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={(e) => deleteSession(session.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-black transition-all"
-                      aria-label="Delete session"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                )}
-              </div>
+                session={session}
+                isActive={activeSessionId === session.id}
+                isRenaming={renamingId === session.id}
+                renameValue={renameValue}
+                renameInputRef={renamingId === session.id ? renameInputRef : undefined}
+                onSelect={() => selectSession(session.id)}
+                onDelete={(e) => deleteSession(session.id, e)}
+                onStartRename={(e) => startRename(session, e)}
+                onRenameChange={setRenameValue}
+                onRenameKeyDown={(e) => handleRenameKeyDown(e, session.id)}
+                onRenameCommit={() => commitRename(session.id)}
+                onRenameCancel={cancelRename}
+                onRenameBlur={() => commitRename(session.id)}
+              />
             ))
           )}
         </div>
@@ -429,7 +465,24 @@ export default function ChatPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
-          {messages.length === 0 && !isLoading ? (
+          {messagesLoading ? (
+            /* Loading skeleton while fetching session messages */
+            <div className="max-w-3xl mx-auto space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-3 ${i % 2 === 1 ? 'flex-row-reverse' : ''}`}
+                >
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 animate-pulse" />
+                  <div
+                    className={`h-14 rounded-2xl bg-gray-100 animate-pulse ${
+                      i % 2 === 1 ? 'w-48' : 'w-64'
+                    }`}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : messages.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
                 <MessageCircle className="w-8 h-8 text-black" />
@@ -476,6 +529,121 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SessionItem sub-component
+// ---------------------------------------------------------------------------
+
+interface SessionItemProps {
+  session: ChatSession;
+  isActive: boolean;
+  isRenaming: boolean;
+  renameValue: string;
+  renameInputRef?: React.RefObject<HTMLInputElement>;
+  onSelect: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onStartRename: (e: React.MouseEvent) => void;
+  onRenameChange: (value: string) => void;
+  onRenameKeyDown: (e: React.KeyboardEvent) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
+  onRenameBlur: () => void;
+}
+
+function SessionItem({
+  session,
+  isActive,
+  isRenaming,
+  renameValue,
+  renameInputRef,
+  onSelect,
+  onDelete,
+  onStartRename,
+  onRenameChange,
+  onRenameKeyDown,
+  onRenameCommit,
+  onRenameCancel,
+  onRenameBlur,
+}: SessionItemProps) {
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        'group w-full text-left rounded-lg px-3 py-2.5 transition-colors cursor-pointer',
+        isActive
+          ? 'bg-gray-100 text-black'
+          : 'text-black hover:bg-gray-100'
+      )}
+    >
+      {isRenaming ? (
+        /* ── Inline rename row ── */
+        <div
+          className="flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(e) => onRenameChange(e.target.value)}
+            onKeyDown={onRenameKeyDown}
+            onBlur={onRenameBlur}
+            className="flex-1 min-w-0 text-sm bg-white border border-gray-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-black text-black"
+            aria-label="Rename conversation"
+          />
+          <button
+            // Use onMouseDown to prevent the rename input's onBlur from
+            // firing before the commit click is processed.  Without this,
+            // clicking "confirm" would trigger both onBlur (→ commit) and
+            // onClick (→ commit) resulting in a duplicate PATCH request.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onRenameCommit}
+            className="p-1 rounded text-gray-500 hover:text-black transition-colors flex-shrink-0"
+            aria-label="Confirm rename"
+          >
+            <Check className="w-3.5 h-3.5" />
+          </button>
+          <button
+            // Same pattern — prevent blur from firing before cancel is
+            // processed, which would otherwise trigger an unintended commit.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onRenameCancel}
+            className="p-1 rounded text-gray-400 hover:text-black transition-colors flex-shrink-0"
+            aria-label="Cancel rename"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : (
+        /* ── Normal row ── */
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{session.title}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {new Date(session.updatedAt).toLocaleDateString()}
+            </p>
+          </div>
+          {/* Action buttons — visible on hover */}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <button
+              onClick={onStartRename}
+              className="p-1 rounded text-gray-400 hover:text-black transition-colors"
+              aria-label="Rename conversation"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onDelete}
+              className="p-1 rounded text-gray-400 hover:text-black transition-colors"
+              aria-label="Delete conversation"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -532,7 +700,9 @@ function MessageBubble({ message, showSources }: { message: ChatMessage; showSou
                 >
                   {src.sourceLabel ?? `[Source ${i + 1}]`}
                 </Badge>
-                <span className="truncate max-w-[120px]">{src.filename}</span>
+                <span className="truncate max-w-[120px]" title={src.documentTitle || src.filename}>
+                  {src.documentTitle || src.filename}
+                </span>
                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 flex-shrink-0">
                   p.{src.pageNumber}
                 </Badge>

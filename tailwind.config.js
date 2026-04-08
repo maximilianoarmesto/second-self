@@ -1,7 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   // Dark mode is intentionally disabled — the app uses a strict black & white theme.
-  darkMode: false,
+  // Using 'selector' strategy with an impossible selector ensures dark-mode classes
+  // are never activated, avoiding the deprecation warning from `darkMode: false`.
+  darkMode: ['selector', '[data-theme="dark"]'],
   content: [
     './pages/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',

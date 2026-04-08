@@ -14,14 +14,16 @@ export async function GET() {
     ] = await Promise.all([
       prisma.document.count({ where: { ownerId: 1 } }),
       prisma.documentChunk.count({ where: { document: { ownerId: 1 } } }),
-      prisma.chatSession.count({ where: { ownerId: 1 } }),
+      // Only count private sessions in the owner's chat-session stat.
+      prisma.chatSession.count({ where: { ownerId: 1, isPublic: false } }),
       prisma.document.findMany({
         where: { ownerId: 1 },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
+      // Only list private sessions in the recent-chats panel.
       prisma.chatSession.findMany({
-        where: { ownerId: 1 },
+        where: { ownerId: 1, isPublic: false },
         orderBy: { updatedAt: 'desc' },
         take: 5,
         include: {

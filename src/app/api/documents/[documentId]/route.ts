@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { ingestDocument } from '@/lib/services/document-service';
+import { reingestDocument } from '@/lib/services/document-service';
 
 export async function GET(
   request: NextRequest,
@@ -91,20 +91,30 @@ export async function DELETE(
 }
 
 /**
- * POST /api/documents/:documentId/reprocess
+ * POST /api/documents/[documentId]
  *
- * Re-ingests an existing document using the current chunking strategy.
- * Requires the document to have been uploaded after the fileData column was
- * added (i.e. the raw PDF buffer must be stored on the document row).
+ * Re-processes an existing document using the provided PDF file.  Clears all
+ * previous chunks and re-runs the full ingestion pipeline (sentence-aware
+ * overlapping chunking → embeddings → persistence) so the document benefits
+ * from any improvements to the chunking strategy.
  *
- * The OpenAI API key must be supplied via the `x-openai-api-key` header so
- * new embeddings can be generated.
+ * Expects a `multipart/form-data` body with a single `file` field containing
+ * the PDF to re-ingest.  The OpenAI API key must be supplied via the
+ * `x-openai-api-key` request header.
+ *
+ * Returns 202 Accepted immediately; ingestion continues asynchronously.
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
   try {
+    const { documentId } = await params;
+    const id = parseInt(documentId, 10);
+    if (isNaN(id)) {
+      return NextResponse.json({ error: 'Invalid document ID' }, { status: 400 });
+    }
+
     const apiKey = request.headers.get('x-openai-api-key');
     if (!apiKey) {
       return NextResponse.json(
@@ -113,53 +123,54 @@ export async function POST(
       );
     }
 
-    const { documentId } = await params;
-    const id = parseInt(documentId, 10);
-    if (isNaN(id)) {
-      return NextResponse.json({ error: 'Invalid document ID' }, { status: 400 });
-    }
-
-    const document = await prisma.document.findUnique({
-      where: { id },
-      select: { id: true, ownerId: true, fileData: true, status: true },
-    });
-
+    const document = await prisma.document.findUnique({ where: { id } });
     if (!document || document.ownerId !== 1) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    if (!document.fileData) {
-      return NextResponse.json(
-        {
-          error:
-            'This document was uploaded before re-processing support was added. ' +
-            'Please delete it and re-upload the file to benefit from the updated chunking strategy.',
-        },
-        { status: 422 }
-      );
-    }
-
+    // A document already being processed should not be started again.
     if (document.status === 'PROCESSING') {
       return NextResponse.json(
-        { error: 'Document is already being processed. Please wait for it to complete.' },
+        { error: 'Document is already being processed. Please wait for it to finish.' },
         { status: 409 }
       );
     }
 
-    // Reset to PENDING so the UI reflects the queued state immediately
-    const updated = await prisma.document.update({
-      where: { id },
-      data: { status: 'PENDING', errorMessage: null },
-    });
+    const formData = await request.formData();
+    const file = formData.get('file') as File | null;
+    if (!file) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
 
-    const buffer = Buffer.from(document.fileData);
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      return NextResponse.json(
+        { error: 'Only PDF files are accepted' },
+        { status: 400 }
+      );
+    }
 
-    // Run ingestion asynchronously — same pattern as the upload route
-    ingestDocument(id, buffer, apiKey).catch(console.error);
+    const MAX_SIZE = 50 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      return NextResponse.json(
+        { error: 'File size exceeds 50MB limit' },
+        { status: 400 }
+      );
+    }
 
-    return NextResponse.json(updated, { status: 202 });
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    // Fire-and-forget — ingestion may take tens of seconds for large PDFs.
+    reingestDocument(id, document.originalFilename, buffer, apiKey).catch(console.error);
+
+    return NextResponse.json(
+      { message: 'Re-processing started', documentId: id },
+      { status: 202 }
+    );
   } catch (error: any) {
     console.error('Re-process error:', error);
-    return NextResponse.json({ error: error.message || 'Re-processing failed' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Re-processing failed' },
+      { status: 500 }
+    );
   }
 }

@@ -6,18 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface SettingsData {
-  cloneName: string;
-  tone: string;
-  responseLength: string;
-  systemPrompt: string;
-  openaiApiKeyMasked: string | null;
-}
+import type { SettingsData } from '@/types/settings';
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 
@@ -93,29 +82,40 @@ export default function SettingsPage() {
     setSaving(true);
     setSaveMessage(null);
     try {
-      const payload: Record<string, string> = {
+      const payload: Record<string, string | null> = {
         cloneName,
         tone,
         responseLength,
         systemPrompt,
       };
 
-      // Include the API key for server-side storage when the option is enabled
       if (storeKeyOnServer && apiKey) {
+        // Store the key on the server
         payload.openaiApiKey = apiKey;
+      } else if (!storeKeyOnServer && serverKeyMasked) {
+        // User unchecked the box and there was a key — clear it from the server
+        payload.openaiApiKey = null;
       }
 
-      await apiFetch('/api/settings', {
+      const saved = await apiFetch<SettingsData>('/api/settings', {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
 
-      if (storeKeyOnServer && apiKey) {
-        // Update masked display after saving
-        const masked =
-          apiKey.length > 8 ? `${apiKey.slice(0, 5)}..${apiKey.slice(-4)}` : '••••••••';
-        setServerKeyMasked(masked);
+      // Sync the server-key masked display from the authoritative server response
+      // rather than computing it locally, so the UI always reflects what the
+      // server actually stored.
+      if (saved.openaiApiKeyMasked) {
+        setServerKeyMasked(saved.openaiApiKeyMasked);
+        setStoreKeyOnServer(true);
+      } else {
+        setServerKeyMasked(null);
+        // Only uncheck the box if the save was intended to clear the key.
+        if (!storeKeyOnServer) {
+          setStoreKeyOnServer(false);
+        }
       }
+
       setSaveMessage({ type: 'success', text: 'Settings saved successfully.' });
       setTimeout(() => setSaveMessage(null), 4000);
     } catch (err: unknown) {
@@ -205,7 +205,8 @@ export default function SettingsPage() {
           <CardTitle className="text-base">OpenAI API Key</CardTitle>
           <CardDescription>
             Your key is stored in your browser&apos;s localStorage and sent with each request.
-            Optionally, you can also store it on the server to enable public clone access.
+            Optionally, store it on the server to enable public clone access without requiring
+            visitors to supply their own key.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -243,7 +244,11 @@ export default function SettingsPage() {
               Test Connection
             </Button>
           </div>
-          {testMessage && <p className="text-sm text-black">{testMessage}</p>}
+          {testMessage && (
+            <p className={`text-sm ${testStatus === 'error' ? 'text-red-600' : 'text-black'}`}>
+              {testMessage}
+            </p>
+          )}
 
           {/* Store key on server option */}
           <div className="border border-gray-200 rounded-lg p-4 space-y-2 max-w-lg">
@@ -259,13 +264,13 @@ export default function SettingsPage() {
               </span>
             </label>
             <p className="text-xs text-gray-500">
-              When enabled, your API key will be saved on the server so that visitors can chat with
+              When enabled, your API key will be saved on the server so visitors can chat with
               your public clone without needing their own key. The key is sent when you click
-              &quot;Save Settings&quot;.
+              &quot;Save Settings&quot;. Uncheck and save to remove the server-stored key.
             </p>
-            {serverKeyMasked && (
+            {serverKeyMasked && storeKeyOnServer && (
               <p className="text-xs text-gray-500">
-                Server key: <code className="text-black">{serverKeyMasked}</code>
+                Currently stored: <code className="text-black font-mono">{serverKeyMasked}</code>
               </p>
             )}
           </div>
@@ -277,7 +282,8 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Response Tone</CardTitle>
           <CardDescription>
-            Choose the tone your clone uses when generating responses.
+            Choose the tone your clone uses when generating responses. This setting is applied
+            to every chat as a style instruction.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -299,7 +305,10 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Response Length</CardTitle>
-          <CardDescription>Controls how verbose your clone&apos;s answers are.</CardDescription>
+          <CardDescription>
+            Controls how verbose your clone&apos;s answers are. This setting is applied to every
+            chat as a length instruction.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <select
@@ -321,17 +330,16 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Additional Persona Instructions</CardTitle>
           <CardDescription>
-            Optional extra instructions appended after the built-in first-person identity rules. Use
-            this to add biographical details, tone notes, or style preferences for your clone. The
-            core rules (always speak as {cloneName || 'your clone name'}, only use the knowledge
-            base, never hallucinate) are always enforced regardless of what you write here.
+            Additional style and tone instructions appended to every conversation. The core
+            persona rules (first-person identity and knowledge-base grounding) are always
+            enforced and cannot be overridden here.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder={`e.g. I prefer to answer concisely. I grew up in San Francisco. I'm passionate about renewable energy.`}
+            placeholder="Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic."
             rows={6}
             className="flex w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black resize-y min-h-[120px]"
           />
@@ -344,7 +352,11 @@ export default function SettingsPage() {
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Save Settings
         </Button>
-        {saveMessage && <p className="text-sm text-black">{saveMessage.text}</p>}
+        {saveMessage && (
+          <p className={`text-sm ${saveMessage.type === 'error' ? 'text-red-600' : 'text-black'}`}>
+            {saveMessage.text}
+          </p>
+        )}
       </div>
     </div>
   );
