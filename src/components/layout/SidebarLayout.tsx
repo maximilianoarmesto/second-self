@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Menu } from 'lucide-react';
 import { Sidebar, useSidebarCollapsed } from './Sidebar';
+import { Logo } from '@/components/ui/Logo';
 import { cn } from '@/lib/utils';
 
 interface SidebarLayoutProps {
@@ -66,9 +67,7 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
             <Menu className="w-5 h-5" />
           </button>
           <div className="ml-3 flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
-              <span className="text-xs font-bold text-primary-foreground">SS</span>
-            </div>
+            <Logo size={28} />
             <span className="font-semibold text-foreground">Second Self</span>
           </div>
         </div>

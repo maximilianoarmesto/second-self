@@ -15,6 +15,7 @@ import {
   User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Logo } from '@/components/ui/Logo';
 import { apiFetch } from '@/lib/api';
 import { getAvatarUrl, setAvatarUrl, subscribeAvatarUrl } from '@/lib/avatar-store';
 import type { SettingsData } from '@/types/settings';
@@ -163,9 +164,7 @@ export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarP
     >
       {/* Brand */}
       <div className="flex items-center gap-3 px-4 h-16 border-b border-border flex-shrink-0">
-        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-          <span className="text-sm font-bold text-primary-foreground">SS</span>
-        </div>
+        <Logo size={36} />
         {(!collapsed || mobile) && (
           <span className="text-lg font-semibold text-foreground whitespace-nowrap overflow-hidden">
             Second Self
