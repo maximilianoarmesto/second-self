@@ -4,7 +4,9 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  serverExternalPackages: ['pdf-parse'],
-}
+  experimental: {
+    serverComponentsExternalPackages: ['pdf-parse'],
+  },
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
