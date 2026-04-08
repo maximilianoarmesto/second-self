@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, Save } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, Save, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +10,7 @@ import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
 import type { SettingsData } from '@/types/settings';
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
+type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 
 const TONE_OPTIONS = [
   { value: 'natural', label: 'Natural' },
@@ -25,6 +27,182 @@ const RESPONSE_LENGTH_OPTIONS = [
 ];
 
 // ---------------------------------------------------------------------------
+// AvatarUpload sub-component
+// ---------------------------------------------------------------------------
+
+interface AvatarUploadProps {
+  /** Current avatar URL (relative path from server) or null if none set. */
+  avatarUrl: string | null;
+  /** Called with the new relative avatar URL after a successful upload. */
+  onUploadSuccess: (newAvatarUrl: string) => void;
+}
+
+function AvatarUpload({ avatarUrl, onUploadSuccess }: AvatarUploadProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleClick = () => {
+    // Reset any previous error state so the user can retry cleanly.
+    setUploadError(null);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset the input value so the same file can be re-selected after an error.
+    e.target.value = '';
+
+    if (!file) return;
+
+    // Client-side validation mirrors the server constraints so errors surface
+    // immediately without a network round-trip.
+    const allowedTypes = new Set(['image/jpeg', 'image/png']);
+    const allowedExts = new Set(['.jpg', '.jpeg', '.png']);
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+
+    if (!allowedTypes.has(file.type) && !allowedExts.has(ext)) {
+      setUploadError('Invalid file type. Only JPG and PNG images are accepted.');
+      return;
+    }
+
+    const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+    if (file.size > MAX_BYTES) {
+      setUploadError('File too large. Maximum allowed size is 2 MB.');
+      return;
+    }
+
+    setUploadStatus('uploading');
+    setUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const result = await apiFetch<{ avatarUrl: string }>('/api/settings/avatar', {
+        method: 'POST',
+        body: formData,
+      });
+
+      onUploadSuccess(result.avatarUrl);
+      setUploadStatus('success');
+      // Return to idle after a brief acknowledgement window.
+      setTimeout(() => setUploadStatus('idle'), 2000);
+    } catch (err: unknown) {
+      setUploadStatus('error');
+      setUploadError(
+        err instanceof Error ? err.message : 'Failed to upload avatar. Please try again.'
+      );
+    }
+  };
+
+  const isUploading = uploadStatus === 'uploading';
+
+  return (
+    <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+      {/* ── Clickable avatar circle ── */}
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isUploading}
+        aria-label="Upload profile image"
+        className="group relative flex-shrink-0 w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 transition-colors hover:border-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+      >
+        {/* Avatar image or placeholder icon */}
+        {avatarUrl ? (
+          <Image
+            src={avatarUrl}
+            alt="Profile avatar"
+            fill
+            sizes="96px"
+            className="object-cover"
+            // Use a cache-busting timestamp so the browser always fetches the
+            // latest version after an upload replaces the file on disk.
+            key={avatarUrl}
+          />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center">
+            <User className="w-10 h-10 text-gray-400" />
+          </span>
+        )}
+
+        {/* Upload-in-progress overlay */}
+        {isUploading && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 flex items-center justify-center bg-white/70"
+          >
+            <Loader2 className="w-6 h-6 animate-spin text-black" />
+          </span>
+        )}
+
+        {/* Success flash overlay */}
+        {uploadStatus === 'success' && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 flex items-center justify-center bg-white/70"
+          >
+            <CheckCircle2 className="w-6 h-6 text-black" />
+          </span>
+        )}
+
+        {/* Hover overlay — only shown when not uploading/showing success */}
+        {uploadStatus === 'idle' && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors"
+          >
+            <span className="text-xs font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity select-none">
+              Change
+            </span>
+          </span>
+        )}
+      </button>
+
+      {/* ── Label + status text ── */}
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-black">Profile Image</p>
+        <p className="text-xs text-gray-500">
+          Click the avatar to upload a new image.
+          <br />
+          JPG or PNG, max 2 MB.
+        </p>
+
+        {/* Status / error feedback */}
+        {isUploading && (
+          <p className="text-xs text-black flex items-center gap-1">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Uploading&hellip;
+          </p>
+        )}
+        {uploadStatus === 'success' && (
+          <p className="text-xs text-black flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3" />
+            Avatar updated successfully.
+          </p>
+        )}
+        {uploadStatus === 'error' && uploadError && (
+          <p className="text-xs text-red-600 flex items-center gap-1">
+            <XCircle className="w-3 h-3 flex-shrink-0" />
+            {uploadError}
+          </p>
+        )}
+      </div>
+
+      {/* Hidden file input — accepts JPG and PNG only */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+        className="hidden"
+        aria-hidden="true"
+        onChange={handleFileChange}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -35,6 +213,9 @@ export default function SettingsPage() {
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  // Avatar state
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   // Form state
   const [cloneName, setCloneName] = useState('');
@@ -59,6 +240,7 @@ export default function SettingsPage() {
         setTone(data.tone ?? 'natural');
         setResponseLength(data.responseLength ?? 'balanced');
         setSystemPrompt(data.systemPrompt ?? '');
+        setAvatarUrl(data.avatarUrl ?? null);
         if (data.openaiApiKeyMasked) {
           setServerKeyMasked(data.openaiApiKeyMasked);
           setStoreKeyOnServer(true);
@@ -180,6 +362,20 @@ export default function SettingsPage() {
           Configure your digital clone&apos;s behavior and preferences.
         </p>
       </div>
+
+      {/* Profile Image */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Profile Image</CardTitle>
+          <CardDescription>
+            Upload a profile photo for your digital clone. This image is shown in the public
+            chat interface and on the dashboard.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AvatarUpload avatarUrl={avatarUrl} onUploadSuccess={setAvatarUrl} />
+        </CardContent>
+      </Card>
 
       {/* Clone Name */}
       <Card>
