@@ -1,28 +1,26 @@
-FROM node:20-alpine AS base
-
-FROM base AS deps
+FROM node:20-alpine AS builder
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci
-
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# Copy everything from host (including node_modules via .dockerignore allowing it)
 COPY . .
 
 RUN mkdir -p public
 
+# Reinstall platform-specific binaries for Linux (host node_modules are for macOS)
+RUN npm rebuild
+# Ensure the correct SWC binary is installed for this platform
+RUN npm install @next/swc-linux-arm64-musl --save-optional 2>/dev/null || true
+RUN npm install @next/swc-linux-arm64-gnu --save-optional 2>/dev/null || true
+
 ENV NEXT_TELEMETRY_DISABLED=1
-# Dummy URL for Prisma generate + Next.js build (not used at runtime)
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV PRISMA_DATABASE_URL="postgresql://build:build@localhost:5432/build"
 
 RUN npx prisma generate --config=prisma.config.ts
 RUN npm run build
 
-FROM base AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -48,7 +46,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/scripts/start.sh ./scripts/start.
 COPY --from=builder --chown=nextjs:nodejs /app/src/generated ./src/generated
 
 # Copy node_modules for prisma CLI, tsx, and adapter dependencies needed at startup
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
 USER nextjs
