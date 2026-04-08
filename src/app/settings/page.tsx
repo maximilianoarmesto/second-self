@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
+import { setAvatarUrl as publishAvatarUrl } from '@/lib/avatar-store';
 import type { SettingsData } from '@/types/settings';
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
@@ -373,7 +374,15 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <AvatarUpload avatarUrl={avatarUrl} onUploadSuccess={setAvatarUrl} />
+          <AvatarUpload
+            avatarUrl={avatarUrl}
+            onUploadSuccess={(newUrl) => {
+              setAvatarUrl(newUrl);
+              // Broadcast the new URL to all store subscribers (e.g. Sidebar)
+              // so the avatar updates immediately without a page reload.
+              publishAvatarUrl(newUrl);
+            }}
+          />
         </CardContent>
       </Card>
 
