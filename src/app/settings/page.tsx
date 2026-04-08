@@ -450,7 +450,15 @@ export default function SettingsPage() {
             </Button>
           </div>
           {testMessage && (
-            <p className={`text-sm ${testStatus === 'error' ? 'text-red-600' : 'text-black'}`}>
+            <p
+              className={`text-sm ${
+                testStatus === 'success'
+                  ? 'text-green-700'
+                  : testStatus === 'error'
+                    ? 'text-red-700'
+                    : 'text-black'
+              }`}
+            >
               {testMessage}
             </p>
           )}
