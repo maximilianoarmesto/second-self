@@ -1,7 +1,7 @@
 /** @type {import('jest').Config} */
 const config = {
-  preset: 'ts-jest',
-  testEnvironment: 'jest-environment-node',
+  preset: '/usr/local/lib/node_modules/ts-jest',
+  testEnvironment: 'node',
   rootDir: '.',
   // Only pick up files inside src/__tests__
   testMatch: ['<rootDir>/src/__tests__/**/*.test.ts'],
@@ -11,7 +11,7 @@ const config = {
   },
   transform: {
     '^.+\\.tsx?$': [
-      'ts-jest',
+      '/usr/local/lib/node_modules/ts-jest',
       {
         tsconfig: {
           // Relax compiler options that ts-jest struggles with under the

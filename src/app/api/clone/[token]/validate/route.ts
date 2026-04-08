@@ -31,10 +31,12 @@ export async function GET(
     }
 
     const cloneName = link.owner.settings?.cloneName || link.owner.cloneName;
+    const avatarUrl = link.owner.settings?.avatarUrl ?? null;
 
     return NextResponse.json({
       valid: true,
       cloneName,
+      avatarUrl,
     });
   } catch (error: any) {
     console.error('Token validation error:', error);

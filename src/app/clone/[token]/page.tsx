@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Send, ShieldAlert, Loader2 } from 'lucide-react';
+import { Send, ShieldAlert, Loader2, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,7 @@ export default function PublicClonePage() {
   const [validating, setValidating] = useState(true);
   const [valid, setValid] = useState(false);
   const [cloneName, setCloneName] = useState('Second Self');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [messages, setMessages] = useState<CloneMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -56,6 +57,7 @@ export default function PublicClonePage() {
           const data = await res.json();
           setValid(true);
           setCloneName(data.cloneName || 'Second Self');
+          setAvatarUrl(data.avatarUrl ?? null);
         } else {
           setValid(false);
         }
@@ -175,9 +177,7 @@ export default function PublicClonePage() {
       {/* Header */}
       <header className="border-b border-gray-200 bg-white px-4 py-3 flex-shrink-0">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-white">SS</span>
-          </div>
+          <CloneAvatar avatarUrl={avatarUrl} size="sm" />
           <div>
             <h1 className="text-sm font-semibold text-black">{cloneName}&apos;s Second Self</h1>
             <p className="text-xs text-gray-500">AI-powered digital clone</p>
@@ -189,8 +189,8 @@ export default function PublicClonePage() {
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 && !isLoading ? (
           <div className="flex flex-col items-center justify-center h-full text-center max-w-md mx-auto">
-            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-              <span className="text-lg font-bold text-black">SS</span>
+            <div className="mb-4">
+              <CloneAvatar avatarUrl={avatarUrl} size="lg" />
             </div>
             <h2 className="text-lg font-semibold text-black mb-1">
               Chat with {cloneName}&apos;s Second Self
@@ -202,9 +202,9 @@ export default function PublicClonePage() {
         ) : (
           <div className="max-w-3xl mx-auto space-y-6">
             {messages.map((msg) => (
-              <PublicMessageBubble key={msg.id} message={msg} />
+              <PublicMessageBubble key={msg.id} message={msg} avatarUrl={avatarUrl} />
             ))}
-            {isLoading && <PublicTypingIndicator />}
+            {isLoading && <PublicTypingIndicator avatarUrl={avatarUrl} />}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -240,22 +240,94 @@ export default function PublicClonePage() {
 }
 
 // ---------------------------------------------------------------------------
+// CloneAvatar
+// ---------------------------------------------------------------------------
+
+interface CloneAvatarProps {
+  /** Relative or absolute URL of the owner's avatar, or null to show the fallback. */
+  avatarUrl: string | null;
+  /** `sm` renders an 8×8 (32px) circle; `lg` renders a 14×14 (56px) rounded square. */
+  size?: 'sm' | 'lg';
+}
+
+/**
+ * Renders the clone's profile image when `avatarUrl` is provided, with a
+ * graceful `<User>` icon fallback for missing or broken URLs.
+ *
+ * - Uses a plain `<img>` tag so an `onError` handler can swap in the fallback
+ *   without requiring Next.js Image configuration for arbitrary local paths.
+ * - The fallback is also shown immediately when `avatarUrl` is null/empty,
+ *   so there is never a broken-image state.
+ */
+function CloneAvatar({ avatarUrl, size = 'sm' }: CloneAvatarProps) {
+  const [imgError, setImgError] = useState(false);
+
+  // Reset the error flag whenever the URL changes (e.g., after a re-validate).
+  useEffect(() => {
+    setImgError(false);
+  }, [avatarUrl]);
+
+  const showImage = Boolean(avatarUrl) && !imgError;
+
+  if (size === 'lg') {
+    return (
+      <div className="w-14 h-14 rounded-2xl bg-gray-100 overflow-hidden flex items-center justify-center flex-shrink-0">
+        {showImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarUrl!}
+            alt="Clone avatar"
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <User className="w-7 h-7 text-gray-400" aria-hidden="true" />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-8 h-8 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center flex-shrink-0">
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={avatarUrl!}
+          alt="Clone avatar"
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <User className="w-4 h-4 text-gray-400" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PublicMessageBubble
 // ---------------------------------------------------------------------------
 
-function PublicMessageBubble({ message }: { message: CloneMessage }) {
+interface PublicMessageBubbleProps {
+  message: CloneMessage;
+  /** Clone's avatar URL, forwarded to the assistant avatar slot. */
+  avatarUrl: string | null;
+}
+
+function PublicMessageBubble({ message, avatarUrl }: PublicMessageBubbleProps) {
   const isUser = message.role === 'user';
 
   return (
     <div className={cn('flex gap-3', isUser ? 'flex-row-reverse' : 'flex-row')}>
-      <div
-        className={cn(
-          'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
-          isUser ? 'bg-black text-white' : 'bg-gray-100 text-gray-900'
-        )}
-      >
-        {isUser ? 'Y' : 'SS'}
-      </div>
+      {/* Avatar */}
+      {isUser ? (
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-black flex items-center justify-center text-xs font-bold text-white">
+          Y
+        </div>
+      ) : (
+        <CloneAvatar avatarUrl={avatarUrl} size="sm" />
+      )}
+
       <div className={cn('max-w-[75%] min-w-0', isUser ? 'text-right' : 'text-left')}>
         <div
           className={cn(
@@ -280,12 +352,15 @@ function PublicMessageBubble({ message }: { message: CloneMessage }) {
 // PublicTypingIndicator
 // ---------------------------------------------------------------------------
 
-function PublicTypingIndicator() {
+interface PublicTypingIndicatorProps {
+  /** Clone's avatar URL, shown in the typing indicator's avatar slot. */
+  avatarUrl: string | null;
+}
+
+function PublicTypingIndicator({ avatarUrl }: PublicTypingIndicatorProps) {
   return (
     <div className="flex gap-3">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-900">
-        SS
-      </div>
+      <CloneAvatar avatarUrl={avatarUrl} size="sm" />
       <div className="bg-gray-100 rounded-2xl rounded-tl-md px-4 py-3">
         <div className="flex space-x-1.5">
           <span
