@@ -75,9 +75,12 @@ export default function KnowledgeBasePage() {
     }
     try {
       const data = await apiFetch<DocumentSummary[]>('/api/documents');
+
+      // Collect IDs of documents whose status has changed so we can
+      // invalidate their cached detail entries.  We read the current
+      // documents value via a functional updater to avoid a stale-closure
+      // dependency, then apply both state updates in the same React batch.
       setDocuments((prev) => {
-        // Collect IDs of documents whose status changed so we can invalidate
-        // their cached detail below.
         const changedIds = new Set(
           data
             .filter((d) => {
@@ -86,7 +89,11 @@ export default function KnowledgeBasePage() {
             })
             .map((d) => d.id)
         );
-        // Invalidate detail cache for changed docs (outside this updater).
+
+        // Invalidate detail cache for docs whose status changed.
+        // This is intentionally a separate state update — React 18 batches
+        // state updates that originate from the same event/microtask, so
+        // this produces a single re-render alongside the documents update.
         if (changedIds.size > 0) {
           setDetailMap((detailPrev) => {
             const next = { ...detailPrev };
@@ -94,6 +101,7 @@ export default function KnowledgeBasePage() {
             return next;
           });
         }
+
         return data;
       });
     } catch (err: unknown) {

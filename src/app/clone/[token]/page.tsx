@@ -29,7 +29,7 @@ export default function PublicClonePage() {
 
   const [validating, setValidating] = useState(true);
   const [valid, setValid] = useState(false);
-  const [cloneName, setCloneName] = useState('');
+  const [cloneName, setCloneName] = useState('Second Self');
   const [messages, setMessages] = useState<CloneMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -55,7 +55,7 @@ export default function PublicClonePage() {
         if (res.ok) {
           const data = await res.json();
           setValid(true);
-          setCloneName(data.cloneName || 'Anonymous');
+          setCloneName(data.cloneName || 'Second Self');
         } else {
           setValid(false);
         }

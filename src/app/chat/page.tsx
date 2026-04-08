@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getStoredApiKey } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +65,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -117,6 +118,8 @@ export default function ChatPage() {
     }
 
     async function loadMessages() {
+      setMessagesLoading(true);
+      setMessages([]); // Clear stale messages immediately to avoid flash of old content
       try {
         const session = await apiFetch<{ messages: any[] }>(
           `/api/chat/sessions/${activeSessionId}`
@@ -131,6 +134,8 @@ export default function ChatPage() {
         setMessages(msgs);
       } catch {
         setMessages([]);
+      } finally {
+        setMessagesLoading(false);
       }
     }
     loadMessages();
@@ -222,6 +227,22 @@ export default function ChatPage() {
     const text = input.trim();
     if (!text || isLoading) return;
 
+    // Guard: the backend requires an API key — catch this early to show a
+    // clear, actionable error instead of a generic "Request failed" message.
+    if (!getStoredApiKey()) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          role: 'assistant' as const,
+          content:
+            'No OpenAI API key found. Please add your key in **Settings** before chatting.',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: `temp-${Date.now()}`,
       role: 'user',
@@ -281,6 +302,9 @@ export default function ChatPage() {
       ]);
     } finally {
       setIsLoading(false);
+      // Restore focus to the input field so the user can type the next message
+      // without having to click the input again.
+      inputRef.current?.focus();
     }
   };
 
@@ -350,6 +374,7 @@ export default function ChatPage() {
                 onRenameKeyDown={(e) => handleRenameKeyDown(e, session.id)}
                 onRenameCommit={() => commitRename(session.id)}
                 onRenameCancel={cancelRename}
+                onRenameBlur={() => commitRename(session.id)}
               />
             ))
           )}
@@ -390,7 +415,24 @@ export default function ChatPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
-          {messages.length === 0 && !isLoading ? (
+          {messagesLoading ? (
+            /* Loading skeleton while fetching session messages */
+            <div className="max-w-3xl mx-auto space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-3 ${i % 2 === 1 ? 'flex-row-reverse' : ''}`}
+                >
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 animate-pulse" />
+                  <div
+                    className={`h-14 rounded-2xl bg-gray-100 animate-pulse ${
+                      i % 2 === 1 ? 'w-48' : 'w-64'
+                    }`}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : messages.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
                 <MessageCircle className="w-8 h-8 text-black" />
@@ -462,6 +504,7 @@ interface SessionItemProps {
   onRenameKeyDown: (e: React.KeyboardEvent) => void;
   onRenameCommit: () => void;
   onRenameCancel: () => void;
+  onRenameBlur: () => void;
 }
 
 function SessionItem({
@@ -477,6 +520,7 @@ function SessionItem({
   onRenameKeyDown,
   onRenameCommit,
   onRenameCancel,
+  onRenameBlur,
 }: SessionItemProps) {
   return (
     <div
@@ -499,10 +543,16 @@ function SessionItem({
             value={renameValue}
             onChange={(e) => onRenameChange(e.target.value)}
             onKeyDown={onRenameKeyDown}
+            onBlur={onRenameBlur}
             className="flex-1 min-w-0 text-sm bg-white border border-gray-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-black text-black"
             aria-label="Rename conversation"
           />
           <button
+            // Use onMouseDown to prevent the rename input's onBlur from
+            // firing before the commit click is processed.  Without this,
+            // clicking "confirm" would trigger both onBlur (→ commit) and
+            // onClick (→ commit) resulting in a duplicate PATCH request.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onRenameCommit}
             className="p-1 rounded text-gray-500 hover:text-black transition-colors flex-shrink-0"
             aria-label="Confirm rename"
@@ -510,6 +560,9 @@ function SessionItem({
             <Check className="w-3.5 h-3.5" />
           </button>
           <button
+            // Same pattern — prevent blur from firing before cancel is
+            // processed, which would otherwise trigger an unintended commit.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onRenameCancel}
             className="p-1 rounded text-gray-400 hover:text-black transition-colors flex-shrink-0"
             aria-label="Cancel rename"

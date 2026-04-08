@@ -184,6 +184,23 @@ export default function UploadPage() {
   };
 
   const uploadAll = () => {
+    // Warn early if there is no API key — the server will reject the request
+    // anyway, but surfacing the error before XHR starts is cleaner UX.
+    if (!getStoredApiKey()) {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.state === 'idle'
+            ? {
+                ...f,
+                state: 'error',
+                errorMessage:
+                  'OpenAI API key is required. Please configure it in Settings before uploading.',
+              }
+            : f
+        )
+      );
+      return;
+    }
     const pending = files.filter((f) => f.state === 'idle');
     pending.forEach(uploadFile);
   };
