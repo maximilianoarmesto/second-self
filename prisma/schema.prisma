@@ -31,6 +31,7 @@ model Settings {
   tone                  String   @default("natural")
   responseLength        String   @default("balanced") @map("response_length")
   openaiApiKeyEncrypted String?  @map("openai_api_key_encrypted")
+  avatarUrl             String?  @map("avatar_url")
   updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
 
   owner Owner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
