@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateResponse } from '@/lib/services/rag-service';
+import { buildCustomPrompt } from '@/lib/settings-prompt';
 import crypto from 'crypto';
 
 export async function POST(
@@ -72,12 +73,17 @@ export async function POST(
     const ownerSettings = link.owner.settings;
     const cloneName = ownerSettings?.cloneName ?? link.owner.cloneName ?? undefined;
 
-    // Pass the operator-supplied custom prompt as the style/tone extension.
-    // buildSystemPrompt() in rag-service appends it after the strict
-    // first-person base rules, so persona constraints are always enforced.
+    // Build the composite custom prompt that incorporates systemPrompt, tone,
+    // and responseLength from the owner's Settings.  buildSystemPrompt() in
+    // rag-service appends it after the strict first-person base rules, so
+    // persona constraints are always enforced.
     // Pass null (not undefined) when no custom prompt exists so generateResponse()
     // knows to skip its own Settings fetch — this route already has the data.
-    const customPrompt = ownerSettings?.systemPrompt ?? null;
+    const customPrompt = buildCustomPrompt(
+      ownerSettings?.systemPrompt ?? null,
+      ownerSettings?.tone ?? null,
+      ownerSettings?.responseLength ?? null,
+    );
 
     const result = await generateResponse({
       message: message.trim(),
@@ -86,6 +92,9 @@ export async function POST(
       showSources: false,
       cloneName,
       customPrompt,
+      // Mark sessions created via the public clone link so the owner can
+      // distinguish them from their own private-chat sessions.
+      isPublicSession: true,
     });
 
     return NextResponse.json({

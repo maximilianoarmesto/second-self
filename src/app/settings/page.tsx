@@ -118,21 +118,23 @@ export default function SettingsPage() {
         payload.openaiApiKey = null;
       }
 
-      await apiFetch('/api/settings', {
+      const saved = await apiFetch<SettingsData>('/api/settings', {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
 
-      if (storeKeyOnServer && apiKey) {
-        // Update masked display after saving
-        const masked =
-          apiKey.length > 8
-            ? `${apiKey.slice(0, 5)}..${apiKey.slice(-4)}`
-            : '••••••••';
-        setServerKeyMasked(masked);
-      } else if (!storeKeyOnServer) {
-        // Cleared from server
+      // Sync the server-key masked display from the authoritative server response
+      // rather than computing it locally, so the UI always reflects what the
+      // server actually stored.
+      if (saved.openaiApiKeyMasked) {
+        setServerKeyMasked(saved.openaiApiKeyMasked);
+        setStoreKeyOnServer(true);
+      } else {
         setServerKeyMasked(null);
+        // Only uncheck the box if the save was intended to clear the key.
+        if (!storeKeyOnServer) {
+          setStoreKeyOnServer(false);
+        }
       }
 
       setSaveMessage({ type: 'success', text: 'Settings saved successfully.' });
@@ -301,7 +303,8 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Response Tone</CardTitle>
           <CardDescription>
-            Choose the tone your clone uses when generating responses.
+            Choose the tone your clone uses when generating responses. This setting is applied
+            to every chat as a style instruction.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -324,7 +327,8 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Response Length</CardTitle>
           <CardDescription>
-            Controls how verbose your clone&apos;s answers are.
+            Controls how verbose your clone&apos;s answers are. This setting is applied to every
+            chat as a length instruction.
           </CardDescription>
         </CardHeader>
         <CardContent>

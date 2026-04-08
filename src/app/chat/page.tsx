@@ -18,7 +18,6 @@ import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api';
 
@@ -66,6 +65,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -160,8 +160,9 @@ export default function ChatPage() {
         setActiveSessionId(null);
         setMessages([]);
       }
-    } catch {
-      // silent
+    } catch (err: unknown) {
+      setSessionError(err instanceof Error ? err.message : 'Failed to delete conversation.');
+      setTimeout(() => setSessionError(null), 4000);
     }
   };
 
@@ -306,6 +307,20 @@ export default function ChatPage() {
             New Chat
           </Button>
         </div>
+
+        {/* Session-level error (delete/rename failures) */}
+        {sessionError && (
+          <div className="mx-2 mt-2 rounded-md bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-black flex items-center gap-2">
+            <span className="flex-1">{sessionError}</span>
+            <button
+              onClick={() => setSessionError(null)}
+              className="text-gray-400 hover:text-black flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
 
         {/* Session list */}
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateResponse } from '@/lib/services/rag-service';
+import { buildCustomPrompt } from '@/lib/settings-prompt';
 // Retrieval constants are defined in src/lib/config/rag.ts for easy tuning.
 // Importing them here makes the active configuration visible in route-level
 // request logs so operators can confirm the live values without needing to
@@ -42,9 +43,16 @@ export async function POST(request: NextRequest) {
     // on the service's internal DB fallback for the normal private-chat path.
     const settings = await prisma.settings.findUnique({ where: { ownerId: 1 } });
     const cloneName = settings?.cloneName ?? undefined;
-    // Pass null when no custom prompt is saved so generateResponse() knows
-    // to skip its own DB fetch (explicit null ≠ undefined/missing).
-    const customPrompt = settings?.systemPrompt ?? null;
+    // Build a composite custom prompt that incorporates the operator's saved
+    // systemPrompt together with tone and response-length preferences.
+    // These three settings fields all control *style*, so merging them here
+    // keeps buildSystemPrompt()'s interface clean (it only accepts a single
+    // customPrompt string) while ensuring all style settings take effect.
+    const customPrompt = buildCustomPrompt(
+      settings?.systemPrompt ?? null,
+      settings?.tone ?? null,
+      settings?.responseLength ?? null,
+    );
 
     const result = await generateResponse({
       message: message.trim(),
