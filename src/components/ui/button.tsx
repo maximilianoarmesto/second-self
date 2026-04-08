@@ -15,14 +15,16 @@ const buttonVariants = cva(
         outline: 'bg-white text-black border border-black hover:bg-gray-100',
 
         // Ghost: no background or border; hover shows a light gray fill with black text
-        ghost: 'bg-transparent text-black border border-transparent hover:bg-gray-100 hover:text-black',
+        ghost:
+          'bg-transparent text-black border border-transparent hover:bg-gray-100 hover:text-black',
 
         // Link: looks like a hyperlink — no background, black text, underline on hover
         link: 'bg-transparent text-black border-0 underline-offset-4 hover:underline',
 
         // Destructive: retained as a distinct semantic danger variant (e.g., confirm-delete actions)
         // Uses deep red so the user clearly understands the irreversible nature of the action.
-        destructive: 'bg-red-600 text-white border border-red-600 hover:bg-red-700 hover:border-red-700',
+        destructive:
+          'bg-red-600 text-white border border-red-600 hover:bg-red-700 hover:border-red-700',
       },
       size: {
         default: 'h-10 px-4 py-2',
@@ -39,17 +41,12 @@ const buttonVariants = cva(
 );
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {}
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, ...props }, ref) => {
     return (
-      <button
-        className={cn(buttonVariants({ variant, size, className }))}
-        ref={ref}
-        {...props}
-      />
+      <button className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
     );
   }
 );

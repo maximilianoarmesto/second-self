@@ -29,20 +29,14 @@ export async function POST(
     });
 
     if (!link || !link.isActive) {
-      return NextResponse.json(
-        { error: 'Invalid or expired link' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 });
     }
 
     const body = await request.json();
     const { message, sessionId } = body;
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
     // Get API key: prefer stored key from settings, fall back to header

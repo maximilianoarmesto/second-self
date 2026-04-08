@@ -24,7 +24,10 @@ model Settings {
   id                    Int      @id @default(autoincrement())
   ownerId               Int      @unique @map("owner_id")
   cloneName             String   @default("My Second Self") @map("clone_name")
-  systemPrompt          String   @default("Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic.") @map("system_prompt")
+  /// Additional persona instructions appended after the core first-person
+  /// identity rules that are always injected by buildSystemPrompt() in the
+  /// RAG service. Leave empty to use the built-in rules only.
+  systemPrompt          String   @default("") @map("system_prompt")
   tone                  String   @default("natural")
   responseLength        String   @default("balanced") @map("response_length")
   openaiApiKeyEncrypted String?  @map("openai_api_key_encrypted")
@@ -44,6 +47,9 @@ model Document {
   pageCount        Int?           @map("page_count")
   status           DocumentStatus @default(PENDING)
   errorMessage     String?        @map("error_message")
+  /// Raw PDF bytes retained so the document can be re-processed with an
+  /// updated chunking strategy without requiring a new upload.
+  fileData         Bytes?         @map("file_data")
   ownerId          Int            @map("owner_id")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
@@ -59,6 +65,9 @@ model DocumentChunk {
   documentId    Int                          @map("document_id")
   chunkIndex    Int                          @map("chunk_index")
   pageNumber    Int                          @map("page_number")
+  /// Human-readable document title (original filename) stored directly on the
+  /// chunk so retrieval queries can surface rich source citations without an
+  /// extra join.
   documentTitle String                       @default("") @map("document_title")
   content       String
   embedding     Unsupported("vector(1536)")?

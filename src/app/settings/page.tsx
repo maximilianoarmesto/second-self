@@ -1,23 +1,10 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import {
-  Eye,
-  EyeOff,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Save,
-} from 'lucide-react';
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
 import type { SettingsData } from '@/types/settings';
 
@@ -44,7 +31,10 @@ const RESPONSE_LENGTH_OPTIONS = [
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [saveMessage, setSaveMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Form state
   const [cloneName, setCloneName] = useState('');
@@ -338,7 +328,7 @@ export default function SettingsPage() {
       {/* System Prompt */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">System Prompt</CardTitle>
+          <CardTitle className="text-base">Additional Persona Instructions</CardTitle>
           <CardDescription>
             Additional style and tone instructions appended to every conversation. The core
             persona rules (first-person identity and knowledge-base grounding) are always
@@ -359,11 +349,7 @@ export default function SettingsPage() {
       {/* Save button */}
       <div className="flex items-center gap-4">
         <Button onClick={handleSave} disabled={saving} className="gap-2">
-          {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Save Settings
         </Button>
         {saveMessage && (

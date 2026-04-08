@@ -22,10 +22,7 @@ export async function POST(request: NextRequest) {
     const { message, sessionId, showSources } = body;
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
     // Log active retrieval config on every request so operators can confirm

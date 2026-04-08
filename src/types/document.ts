@@ -20,6 +20,8 @@ export interface DocumentSummary {
   pageCount: number | null;
   status: DocumentStatus;
   errorMessage: string | null;
+  /** True when the raw PDF bytes are stored and re-processing is available. */
+  canReprocess: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,3 +38,6 @@ export interface DocumentUploadResponse {
   status: DocumentStatus;
   createdAt: string;
 }
+
+/** Returned by POST /api/documents/:id when re-processing is queued. */
+export type ReprocessResponse = DocumentUploadResponse;

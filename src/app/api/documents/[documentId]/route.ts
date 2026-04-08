@@ -15,7 +15,19 @@ export async function GET(
 
     const document = await prisma.document.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        filename: true,
+        originalFilename: true,
+        fileSize: true,
+        pageCount: true,
+        status: true,
+        errorMessage: true,
+        ownerId: true,
+        createdAt: true,
+        updatedAt: true,
+        // Derive canReprocess without exposing the raw binary payload
+        fileData: true,
         chunks: {
           orderBy: { chunkIndex: 'asc' },
           select: {
@@ -39,7 +51,8 @@ export async function GET(
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    return NextResponse.json(document);
+    const { fileData, ...rest } = document;
+    return NextResponse.json({ ...rest, canReprocess: fileData !== null });
   } catch (error: any) {
     console.error('Error fetching document:', error);
     return NextResponse.json(

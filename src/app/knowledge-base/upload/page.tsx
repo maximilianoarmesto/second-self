@@ -168,9 +168,7 @@ export default function UploadPage() {
 
       setFiles((prev) =>
         prev.map((f) =>
-          f.id === uploadItem.id
-            ? { ...f, state: 'success', progress: 100, result }
-            : f
+          f.id === uploadItem.id ? { ...f, state: 'success', progress: 100, result } : f
         )
       );
     } catch (err: unknown) {
@@ -286,9 +284,7 @@ export default function UploadPage() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`mb-6 cursor-pointer border-2 border-dashed transition-colors ${
-          isDragging
-            ? 'border-black bg-gray-50'
-            : 'border-gray-200 hover:border-gray-400'
+          isDragging ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-gray-400'
         }`}
         onClick={() => inputRef.current?.click()}
       >

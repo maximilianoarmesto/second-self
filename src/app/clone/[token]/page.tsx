@@ -179,9 +179,7 @@ export default function PublicClonePage() {
             <span className="text-xs font-bold text-white">SS</span>
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-black">
-              {cloneName}&apos;s Second Self
-            </h1>
+            <h1 className="text-sm font-semibold text-black">{cloneName}&apos;s Second Self</h1>
             <p className="text-xs text-gray-500">AI-powered digital clone</p>
           </div>
         </div>
@@ -253,9 +251,7 @@ function PublicMessageBubble({ message }: { message: CloneMessage }) {
       <div
         className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
-          isUser
-            ? 'bg-black text-white'
-            : 'bg-gray-100 text-gray-900'
+          isUser ? 'bg-black text-white' : 'bg-gray-100 text-gray-900'
         )}
       >
         {isUser ? 'Y' : 'SS'}
@@ -264,9 +260,7 @@ function PublicMessageBubble({ message }: { message: CloneMessage }) {
         <div
           className={cn(
             'inline-block rounded-2xl px-4 py-2.5 text-sm text-left',
-            isUser
-              ? 'bg-black text-white rounded-tr-md'
-              : 'bg-gray-100 text-gray-900 rounded-tl-md'
+            isUser ? 'bg-black text-white rounded-tr-md' : 'bg-gray-100 text-gray-900 rounded-tl-md'
           )}
         >
           {isUser ? (

@@ -14,13 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DocumentStatusBadge } from '@/components/documents/DocumentStatusBadge';
 import { apiFetch, getStoredApiKey } from '@/lib/api';
 import type { DocumentDetail, DocumentSummary } from '@/types/document';
@@ -66,7 +60,7 @@ export default function KnowledgeBasePage() {
   const reprocessTargetId = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ---- Fetch list ----
+  // ---- Fetch list (silent = don't show spinner on background polls) ----
 
   const fetchDocuments = useCallback(async (silent = false) => {
     if (!silent) {
@@ -162,6 +156,36 @@ export default function KnowledgeBasePage() {
       } finally {
         setDetailLoading((prev) => ({ ...prev, [docId]: false }));
       }
+    }
+  };
+
+  // ---- Re-process ----
+
+  const handleReprocess = async (docId: number) => {
+    setReprocessingId(docId);
+    setReprocessError(null);
+    try {
+      await apiFetch<ReprocessResponse>(`/api/documents/${docId}`, {
+        method: 'POST',
+      });
+      // Optimistically mark as PENDING in the list so the user sees feedback
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId ? { ...d, status: 'PENDING' as const, errorMessage: null } : d
+        )
+      );
+      // Invalidate cached detail for this document so it reloads fresh
+      setDetailMap((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Re-processing failed. Please try again.';
+      setReprocessError(message);
+    } finally {
+      setReprocessingId(null);
     }
   };
 
@@ -292,15 +316,18 @@ export default function KnowledgeBasePage() {
       )}
 
       {/* Global error */}
-      {error && (
+      {(error || reprocessError) && (
         <div className="mb-6 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-black">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
           <div>
             <p className="font-medium">Error</p>
-            <p className="mt-0.5">{error}</p>
+            <p className="mt-0.5">{error ?? reprocessError}</p>
           </div>
           <button
-            onClick={() => setError(null)}
+            onClick={() => {
+              setError(null);
+              setReprocessError(null);
+            }}
             className="ml-auto flex-shrink-0 text-gray-500 hover:text-black"
             aria-label="Dismiss error"
           >
@@ -352,12 +379,26 @@ export default function KnowledgeBasePage() {
         <div className="space-y-3">
           {/* Stats bar */}
           <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-2">
-            <span>{documents.length} document{documents.length !== 1 ? 's' : ''}</span>
+            <span>
+              {documents.length} document{documents.length !== 1 ? 's' : ''}
+            </span>
             {[
-              { label: 'completed', count: documents.filter((d) => d.status === 'COMPLETED').length },
-              { label: 'processing', count: documents.filter((d) => d.status === 'PROCESSING').length },
-              { label: 'pending', count: documents.filter((d) => d.status === 'PENDING').length },
-              { label: 'failed', count: documents.filter((d) => d.status === 'FAILED').length },
+              {
+                label: 'completed',
+                count: documents.filter((d) => d.status === 'COMPLETED').length,
+              },
+              {
+                label: 'processing',
+                count: documents.filter((d) => d.status === 'PROCESSING').length,
+              },
+              {
+                label: 'pending',
+                count: documents.filter((d) => d.status === 'PENDING').length,
+              },
+              {
+                label: 'failed',
+                count: documents.filter((d) => d.status === 'FAILED').length,
+              },
             ]
               .filter((s) => s.count > 0)
               .map((s) => (
@@ -439,11 +480,7 @@ function DocumentRow({
       >
         {/* Expand chevron */}
         <span className="flex-shrink-0 text-gray-400">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </span>
 
         {/* File icon */}
@@ -455,7 +492,9 @@ function DocumentRow({
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
             <span>{formatFileSize(doc.fileSize)}</span>
             {doc.pageCount != null && (
-              <span>{doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''}</span>
+              <span>
+                {doc.pageCount} page{doc.pageCount !== 1 ? 's' : ''}
+              </span>
             )}
             <span>{formatDate(doc.createdAt)}</span>
           </div>
@@ -478,7 +517,7 @@ function DocumentRow({
                 variant="destructive"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                disabled={isDeleting}
+                disabled={isBusy}
                 onClick={onDeleteConfirm}
               >
                 {isDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Yes'}
@@ -487,7 +526,7 @@ function DocumentRow({
                 variant="outline"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                disabled={isDeleting}
+                disabled={isBusy}
                 onClick={onDeleteCancel}
               >
                 No
@@ -575,8 +614,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-black">
-          Extracted chunks{' '}
-          <span className="font-normal text-gray-500">({chunks.length})</span>
+          Extracted chunks <span className="font-normal text-gray-500">({chunks.length})</span>
         </h3>
       </div>
 
@@ -589,7 +627,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
               key={chunk.id}
               className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs text-black"
             >
-              <div className="mb-1 flex items-center gap-2 text-gray-500">
+              <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-gray-500">
                 <span className="font-medium">Chunk {chunk.chunkIndex + 1}</span>
                 <span>&middot;</span>
                 <span>Page {chunk.pageNumber}</span>
@@ -611,9 +649,7 @@ function DocumentDetailPanel({ detail }: DocumentDetailPanelProps) {
               onClick={() => setShowAll((s) => !s)}
               className="mt-1 text-xs text-black underline-offset-4 hover:underline"
             >
-              {showAll
-                ? 'Show less'
-                : `Show all ${chunks.length} chunks`}
+              {showAll ? 'Show less' : `Show all ${chunks.length} chunks`}
             </button>
           )}
         </div>
