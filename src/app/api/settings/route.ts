@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import type { SettingsData } from '@/types/settings';
 
 // The default system prompt is stored in Settings as the operator-supplied
 // "custom prompt" extension.  The strict first-person persona rules (identity,
@@ -47,13 +46,12 @@ export async function GET() {
           ? '••••••••'
           : null;
 
-    const response: SettingsData = {
+    return NextResponse.json({
       ...rest,
       avatarUrl: settings.avatarUrl ?? null,
       openaiApiKeyMasked: maskedKey,
-    };
-
-    return NextResponse.json(response);
+      updatedAt: settings.updatedAt.toISOString(),
+    });
   } catch (error: any) {
     console.error('Error fetching settings:', error);
     return NextResponse.json(
@@ -114,22 +112,12 @@ export async function PUT(request: NextRequest) {
           ? '••••••••'
           : null;
 
-    const response: SettingsData = {
+    return NextResponse.json({
       ...rest,
       avatarUrl: settings.avatarUrl ?? null,
       openaiApiKeyMasked: maskedKey,
-    };
-
-    // Never return the raw API key — mask it the same way as the GET handler
-    const { openaiApiKeyEncrypted, ...rest } = settings as any;
-    const maskedKey =
-      openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
-        ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
-        : openaiApiKeyEncrypted
-          ? '••••••••'
-          : null;
-
-    return NextResponse.json({ ...rest, openaiApiKeyMasked: maskedKey });
+      updatedAt: settings.updatedAt.toISOString(),
+    });
   } catch (error: any) {
     console.error('Error updating settings:', error);
     return NextResponse.json(

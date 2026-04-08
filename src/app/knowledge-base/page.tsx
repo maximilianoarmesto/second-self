@@ -56,6 +56,7 @@ export default function KnowledgeBasePage() {
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [reprocessingId, setReprocessingId] = useState<number | null>(null);
+  const [reprocessError, setReprocessError] = useState<string | null>(null);
   const reprocessInputRef = useRef<HTMLInputElement>(null);
   const reprocessTargetId = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,7 +166,7 @@ export default function KnowledgeBasePage() {
     setReprocessingId(docId);
     setReprocessError(null);
     try {
-      await apiFetch<ReprocessResponse>(`/api/documents/${docId}`, {
+      await apiFetch(`/api/documents/${docId}`, {
         method: 'POST',
       });
       // Optimistically mark as PENDING in the list so the user sees feedback

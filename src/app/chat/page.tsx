@@ -11,7 +11,6 @@ import {
   FileText,
   Loader2,
   Trash2,
-  Pencil,
   Check,
   X,
 } from 'lucide-react';
@@ -165,42 +164,6 @@ export default function ChatPage() {
   const selectSession = (id: number) => {
     if (renamingId !== null) return; // Don't switch while renaming
     setActiveSessionId(id);
-  };
-
-  // ---- Start rename ----
-  const startRename = (id: number, currentTitle: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setRenamingId(id);
-    setRenameValue(currentTitle);
-  };
-
-  // ---- Confirm rename ----
-  const confirmRename = async (id: number) => {
-    const trimmed = renameValue.trim();
-    if (!trimmed) {
-      cancelRename();
-      return;
-    }
-    setRenameSaving(true);
-    try {
-      const updated = await apiFetch<ChatSession>(`/api/chat/sessions/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ title: trimmed }),
-      });
-      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: updated.title } : s)));
-    } catch {
-      // silent — leave title as-is on failure
-    } finally {
-      setRenameSaving(false);
-      setRenamingId(null);
-      setRenameValue('');
-    }
-  };
-
-  // ---- Cancel rename ----
-  const cancelRename = () => {
-    setRenamingId(null);
-    setRenameValue('');
   };
 
   // ---- Delete session ----
