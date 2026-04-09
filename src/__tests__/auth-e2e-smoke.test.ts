@@ -60,6 +60,7 @@
  * 39.  GET /api/settings without session returns 401
  * 40.  PUT /api/settings without session returns 401
  * 41.  GET /api/dashboard without session returns 401
+ * 42.  POST /api/settings/test-connection without session returns 401
  */
 
 import { NextRequest } from 'next/server';
@@ -358,6 +359,17 @@ const prismaMock = {
 
 jest.mock('@/lib/prisma', () => ({ prisma: prismaMock }));
 
+// ── openai ────────────────────────────────────────────────────────────────────
+// Mock OpenAI so the test-connection route never makes real network calls.
+jest.mock('openai', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    models: {
+      list: jest.fn().mockResolvedValue({ data: [] }),
+    },
+  })),
+}));
+
 // ── bcryptjs ─────────────────────────────────────────────────────────────────
 // Keep hashing deterministic: hash(pw) → '$hash:' + pw, compare(pw, hash) → hash === '$hash:' + pw
 const mockHash = jest.fn((pw: string) => Promise.resolve(`$hash:${pw}`));
@@ -438,6 +450,7 @@ import { DELETE as shareLinkDELETE } from '@/app/api/share-links/[linkId]/route'
 import { GET as sessionsGET, POST as sessionsPOST } from '@/app/api/chat/sessions/route';
 import { GET as sessionByIdGET, DELETE as sessionDELETE } from '@/app/api/chat/sessions/[sessionId]/route';
 import { GET as settingsGET, PUT as settingsPUT } from '@/app/api/settings/route';
+import { POST as testConnectionPOST } from '@/app/api/settings/test-connection/route';
 import { GET as dashboardGET } from '@/app/api/dashboard/route';
 import { GET as cloneValidateGET } from '@/app/api/clone/[token]/validate/route';
 import { middleware } from '@/middleware';
@@ -1213,5 +1226,17 @@ describe('Unauthenticated access to protected API routes', () => {
       params: Promise.resolve({ documentId: '1' }),
     });
     expect(res.status).toBe(401);
+  });
+
+  // 42. POST /api/settings/test-connection without session → 401
+  it('(42) POST /api/settings/test-connection without session → 401', async () => {
+    const req = makeRequest('/api/settings/test-connection', {
+      method: 'POST',
+      headers: { 'x-openai-api-key': 'sk-test-key' },
+    });
+    const res = await testConnectionPOST(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
   });
 });

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async (request: NextRequest, _ctx: AuthContext) => {
   try {
     const apiKey = request.headers.get('x-openai-api-key');
     if (!apiKey) {
@@ -35,4 +37,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
