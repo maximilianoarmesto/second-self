@@ -2,8 +2,14 @@
  * scripts/generate-favicon.ts
  *
  * Generates public/favicon-32x32.png and public/favicon.ico from the logo
- * mark definition: a 32×32 black rounded-square with white "SS" lettering —
- * matching the sidebar brand badge in src/components/layout/Sidebar.tsx.
+ * mark definition in src/components/ui/Logo.tsx:
+ *   • A rounded-square background with a deep blue → violet gradient
+ *   • Three nodes in a triangular formation connected by diagonal strokes
+ *   • A green accent ring on the top node
+ *
+ * Output sizes:
+ *   favicon-32x32.png — 32×32 (used in <link rel="icon"> for PNG browsers)
+ *   favicon.ico        — ICO containing a single 16×16 image (legacy / tab bar)
  *
  * Run with:  npx tsx scripts/generate-favicon.ts
  *
@@ -16,45 +22,72 @@ import * as path from 'path';
 import * as zlib from 'zlib';
 
 // ---------------------------------------------------------------------------
-// Canvas — 32×32 RGBA pixel grid
+// Types & pixel buffer helpers
 // ---------------------------------------------------------------------------
 
-const SIZE = 32;
 type RGBA = [number, number, number, number]; // r, g, b, a  (0–255)
 
-/** Flat RGBA pixel buffer, row-major, top-to-bottom. */
-const pixels = new Uint8Array(SIZE * SIZE * 4); // initialised to 0 (transparent)
-
-function setPixel(x: number, y: number, [r, g, b, a]: RGBA): void {
-  if (x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
-  const idx = (y * SIZE + x) * 4;
-  pixels[idx] = r;
-  pixels[idx + 1] = g;
-  pixels[idx + 2] = b;
-  pixels[idx + 3] = a;
+function makeCanvas(size: number): Uint8Array {
+  return new Uint8Array(size * size * 4); // transparent black
 }
 
-/** Blend src over dst using standard Porter-Duff "src-over". */
-function blendPixel(x: number, y: number, [sr, sg, sb, sa]: RGBA): void {
-  if (x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
+function getIdx(x: number, y: number, size: number): number {
+  return (y * size + x) * 4;
+}
+
+function blendPixel(
+  pixels: Uint8Array,
+  size: number,
+  x: number,
+  y: number,
+  [sr, sg, sb, sa]: RGBA,
+): void {
+  if (x < 0 || x >= size || y < 0 || y >= size) return;
   if (sa === 0) return;
+  const idx = getIdx(x, y, size);
   if (sa === 255) {
-    setPixel(x, y, [sr, sg, sb, sa]);
+    pixels[idx]     = sr;
+    pixels[idx + 1] = sg;
+    pixels[idx + 2] = sb;
+    pixels[idx + 3] = 255;
     return;
   }
-  const idx = (y * SIZE + x) * 4;
-  const dr = pixels[idx];
-  const dg = pixels[idx + 1];
-  const db = pixels[idx + 2];
-  const da = pixels[idx + 3];
-  const sA = sa / 255;
-  const dA = da / 255;
+  const sA   = sa / 255;
+  const dA   = pixels[idx + 3] / 255;
   const outA = sA + dA * (1 - sA);
   if (outA === 0) return;
-  pixels[idx] = Math.round((sr * sA + dr * dA * (1 - sA)) / outA);
-  pixels[idx + 1] = Math.round((sg * sA + dg * dA * (1 - sA)) / outA);
-  pixels[idx + 2] = Math.round((sb * sA + db * dA * (1 - sA)) / outA);
+  pixels[idx]     = Math.round((sr * sA + pixels[idx]     * dA * (1 - sA)) / outA);
+  pixels[idx + 1] = Math.round((sg * sA + pixels[idx + 1] * dA * (1 - sA)) / outA);
+  pixels[idx + 2] = Math.round((sb * sA + pixels[idx + 2] * dA * (1 - sA)) / outA);
   pixels[idx + 3] = Math.round(outA * 255);
+}
+
+// ---------------------------------------------------------------------------
+// Gradient helpers
+// ---------------------------------------------------------------------------
+
+/** Linear interpolation between two values. */
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/**
+ * Sample a linear gradient that runs from (0,0) → (1,1) in normalised coords.
+ * Matches the SVG linearGradient x1="0" y1="0" x2="1" y2="1".
+ */
+function sampleDiagonalGradient(
+  x: number,
+  y: number,
+  size: number,
+  colorA: [number, number, number],
+  colorB: [number, number, number],
+): [number, number, number] {
+  const t = ((x / (size - 1)) + (y / (size - 1))) / 2; // 0 → 1 across diagonal
+  return [
+    Math.round(lerp(colorA[0], colorB[0], t)),
+    Math.round(lerp(colorA[1], colorB[1], t)),
+    Math.round(lerp(colorA[2], colorB[2], t)),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -64,101 +97,241 @@ function blendPixel(x: number, y: number, [sr, sg, sb, sa]: RGBA): void {
 /**
  * Fill a rounded rectangle using a signed-distance-field approach so the
  * corners are smooth even at small sizes.
- *
- * @param radius  Corner radius in pixels.
- * @param color   Fill colour.
- * @param x0,y0   Top-left corner of the rect.
- * @param w,h     Width / height.
  */
 function fillRoundedRect(
-  x0: number, y0: number, w: number, h: number,
-  radius: number, color: RGBA,
+  pixels: Uint8Array,
+  size: number,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  radius: number,
+  colorFn: (px: number, py: number) => RGBA,
 ): void {
   const x1 = x0 + w - 1;
   const y1 = y0 + h - 1;
-
   for (let py = y0; py <= y1; py++) {
     for (let px = x0; px <= x1; px++) {
-      // Distance to nearest corner centre
       const cx = Math.max(x0 + radius, Math.min(x1 - radius, px));
       const cy = Math.max(y0 + radius, Math.min(y1 - radius, py));
       const dx = px - cx;
       const dy = py - cy;
-      const dist = Math.sqrt(dx * dx + dy * dy); // distance from corner arc
-
-      // SDF: negative = inside, positive = outside
-      const sdf = dist - radius;
-
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const sdf = dist - radius; // < 0 inside, > 0 outside
       if (sdf <= -0.5) {
-        // Fully inside
-        blendPixel(px, py, color);
+        blendPixel(pixels, size, px, py, colorFn(px, py));
       } else if (sdf < 0.5) {
-        // Anti-aliased edge: interpolate coverage
-        const coverage = 0.5 - sdf; // 0→1
-        blendPixel(px, py, [color[0], color[1], color[2], Math.round(color[3] * coverage)]);
-      }
-      // else outside — skip
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Minimal bitmap font — 5×7 pixel glyphs for "S"
-// ---------------------------------------------------------------------------
-// Each glyph is encoded as an array of 7 rows; each row is a 5-bit bitmask
-// (bit 4 = leftmost column).
-
-const GLYPH_S: number[] = [
-  0b01110,
-  0b10001,
-  0b10000,
-  0b01110,
-  0b00001,
-  0b10001,
-  0b01110,
-];
-
-/** Render a single glyph at pixel (ox, oy) with the given colour. */
-function drawGlyph(glyph: number[], ox: number, oy: number, color: RGBA): void {
-  for (let row = 0; row < glyph.length; row++) {
-    const bits = glyph[row];
-    for (let col = 0; col < 5; col++) {
-      if (bits & (1 << (4 - col))) {
-        blendPixel(ox + col, oy + row, color);
+        const [r, g, b, a] = colorFn(px, py);
+        const coverage = 0.5 - sdf;
+        blendPixel(pixels, size, px, py, [r, g, b, Math.round(a * coverage)]);
       }
     }
   }
 }
 
+/**
+ * Fill a circle using a signed-distance-field approach.
+ */
+function fillCircle(
+  pixels: Uint8Array,
+  size: number,
+  cx: number,
+  cy: number,
+  radius: number,
+  colorFn: (px: number, py: number) => RGBA,
+): void {
+  const x0 = Math.floor(cx - radius - 1);
+  const y0 = Math.floor(cy - radius - 1);
+  const x1 = Math.ceil(cx + radius + 1);
+  const y1 = Math.ceil(cy + radius + 1);
+  for (let py = y0; py <= y1; py++) {
+    for (let px = x0; px <= x1; px++) {
+      const dist = Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+      const sdf = dist - radius;
+      if (sdf <= -0.5) {
+        blendPixel(pixels, size, px, py, colorFn(px, py));
+      } else if (sdf < 0.5) {
+        const [r, g, b, a] = colorFn(px, py);
+        const coverage = 0.5 - sdf;
+        blendPixel(pixels, size, px, py, [r, g, b, Math.round(a * coverage)]);
+      }
+    }
+  }
+}
+
+/**
+ * Stroke a circle outline.
+ */
+function strokeCircle(
+  pixels: Uint8Array,
+  size: number,
+  cx: number,
+  cy: number,
+  radius: number,
+  strokeWidth: number,
+  color: RGBA,
+): void {
+  const half = strokeWidth / 2;
+  const x0 = Math.floor(cx - radius - half - 1);
+  const y0 = Math.floor(cy - radius - half - 1);
+  const x1 = Math.ceil(cx + radius + half + 1);
+  const y1 = Math.ceil(cy + radius + half + 1);
+  for (let py = y0; py <= y1; py++) {
+    for (let px = x0; px <= x1; px++) {
+      const dist = Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+      // Distance from the ring centre-line
+      const ringDist = Math.abs(dist - radius);
+      const sdf = ringDist - half;
+      if (sdf <= -0.5) {
+        blendPixel(pixels, size, px, py, color);
+      } else if (sdf < 0.5) {
+        const coverage = 0.5 - sdf;
+        blendPixel(pixels, size, px, py, [
+          color[0], color[1], color[2], Math.round(color[3] * coverage),
+        ]);
+      }
+    }
+  }
+}
+
+/**
+ * Draw a line segment using Wu's anti-aliased line algorithm.
+ */
+function drawLine(
+  pixels: Uint8Array,
+  size: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  strokeWidth: number,
+  color: RGBA,
+): void {
+  // Brute-force: iterate pixels in the bounding box and use distance-to-segment.
+  const minX = Math.floor(Math.min(x0, x1) - strokeWidth) - 1;
+  const minY = Math.floor(Math.min(y0, y1) - strokeWidth) - 1;
+  const maxX = Math.ceil(Math.max(x0, x1) + strokeWidth) + 1;
+  const maxY = Math.ceil(Math.max(y0, y1) + strokeWidth) + 1;
+  const half = strokeWidth / 2;
+
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const lenSq = dx * dx + dy * dy;
+
+  for (let py = minY; py <= maxY; py++) {
+    for (let px = minX; px <= maxX; px++) {
+      // Distance from pixel centre to the line segment
+      let t = lenSq > 0
+        ? ((px - x0) * dx + (py - y0) * dy) / lenSq
+        : 0;
+      t = Math.max(0, Math.min(1, t));
+      const nearX = x0 + t * dx;
+      const nearY = y0 + t * dy;
+      const dist = Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
+      const sdf = dist - half;
+      if (sdf <= -0.5) {
+        blendPixel(pixels, size, px, py, color);
+      } else if (sdf < 0.5) {
+        const coverage = 0.5 - sdf;
+        blendPixel(pixels, size, px, py, [
+          color[0], color[1], color[2], Math.round(color[3] * coverage),
+        ]);
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Compose the 32×32 icon
+// Logo renderer
 // ---------------------------------------------------------------------------
 
-// 1. Black rounded rectangle — 2 px margin on all sides, ~4 px radius
-//    Matches the sidebar badge: "rounded-lg bg-primary" (black).
-const MARGIN = 2;
-const RECT_SIZE = SIZE - MARGIN * 2;   // 28
-const RADIUS = 4;
-const BLACK: RGBA = [0, 0, 0, 255];
-const WHITE: RGBA = [255, 255, 255, 255];
+/**
+ * Render the Second Self logo mark into a SIZE×SIZE pixel buffer.
+ *
+ * The logo geometry is defined in a 32×32 coordinate space (matching the SVG
+ * viewBox) and then scaled to the requested output size.
+ *
+ * Logo elements (matching src/components/ui/Logo.tsx):
+ *   1. Rounded-square background with blue-900 → violet-700 gradient
+ *   2. Three connecting strokes (white 30% alpha, strokeWidth 1.5)
+ *   3. Bottom-left node  at (8.5, 22),  r=2.8, blue gradient + white ring
+ *   4. Bottom-right node at (23.5, 22), r=2.8, blue gradient + white ring
+ *   5. Top node          at (16, 8.5),  r=3.5, blue gradient + green ring
+ */
+function renderLogo(outputSize: number): Uint8Array {
+  const pixels = makeCanvas(outputSize);
 
-fillRoundedRect(MARGIN, MARGIN, RECT_SIZE, RECT_SIZE, RADIUS, BLACK);
+  // Scale factor from the 32×32 SVG viewBox to our output size
+  const S = outputSize / 32;
 
-// 2. Two "S" glyphs side-by-side, centred in the rectangle.
-//    Each glyph is 5 wide × 7 tall; gap between them = 2 px.
-const GLYPH_W = 5;
-const GLYPH_H = 7;
-const GLYPH_GAP = 2;
-const TOTAL_W = GLYPH_W * 2 + GLYPH_GAP; // 12
-const TOTAL_H = GLYPH_H;                  //  7
+  // --- Background gradient colours ---
+  const bgA: [number, number, number] = [0x1e, 0x3a, 0x8a]; // blue-900  #1e3a8a
+  const bgB: [number, number, number] = [0x6d, 0x28, 0xd9]; // violet-700 #6d28d9
 
-// Centre within the full 32×32 canvas (rect starts at MARGIN but fills to
-// SIZE-MARGIN, so its visual centre is SIZE/2 = 16).
-const startX = Math.round((SIZE - TOTAL_W) / 2); // 10
-const startY = Math.round((SIZE - TOTAL_H) / 2); // 12 (one pixel lower than 12.5)
+  // --- Node gradient colours ---
+  const nodeA: [number, number, number] = [0x60, 0xa5, 0xfa]; // blue-400  #60a5fa
+  const nodeB: [number, number, number] = [0x81, 0x8c, 0xf8]; // indigo-400 #818cf8
 
-drawGlyph(GLYPH_S, startX, startY, WHITE);
-drawGlyph(GLYPH_S, startX + GLYPH_W + GLYPH_GAP, startY, WHITE);
+  // 1. Rounded-square background (SVG: x=1 y=1 w=30 h=30 rx=6)
+  fillRoundedRect(
+    pixels, outputSize,
+    Math.round(1 * S), Math.round(1 * S),
+    Math.round(30 * S), Math.round(30 * S),
+    Math.max(1, Math.round(6 * S)),
+    (px, py) => {
+      const [r, g, b] = sampleDiagonalGradient(px, py, outputSize, bgA, bgB);
+      return [r, g, b, 255];
+    },
+  );
+
+  // Node centres in output-pixel space
+  const topCX    = 16   * S;
+  const topCY    = 8.5  * S;
+  const blCX     = 8.5  * S;
+  const blCY     = 22   * S;
+  const brCX     = 23.5 * S;
+  const brCY     = 22   * S;
+
+  // Stroke width: SVG uses 1.5 in 32px space → scale, minimum 0.5px
+  const lineW    = Math.max(0.5, 1.5 * S);
+  const lineAlpha = Math.round(0.30 * 255); // rgba(255,255,255,0.30)
+
+  // 2. Connection strokes (drawn first, behind nodes)
+  const lineColor: RGBA = [255, 255, 255, lineAlpha];
+  drawLine(pixels, outputSize, topCX, topCY, blCX, blCY, lineW, lineColor);
+  drawLine(pixels, outputSize, topCX, topCY, brCX, brCY, lineW, lineColor);
+  drawLine(pixels, outputSize, blCX,  blCY,  brCX, brCY, lineW, lineColor);
+
+  // Node fill gradient helper
+  const nodeFill = (px: number, py: number): RGBA => {
+    const [r, g, b] = sampleDiagonalGradient(px, py, outputSize, nodeA, nodeB);
+    return [r, g, b, 255];
+  };
+
+  // White ring stroke width: SVG uses 0.6 in 32px space
+  const nodeRingW = Math.max(0.4, 0.6 * S);
+  const nodeRingColor: RGBA = [255, 255, 255, Math.round(0.45 * 255)];
+
+  // 3. Bottom-left node (r=2.8 in SVG space)
+  const blR = Math.max(1, 2.8 * S);
+  fillCircle(pixels, outputSize, blCX, blCY, blR, nodeFill);
+  strokeCircle(pixels, outputSize, blCX, blCY, blR, nodeRingW, nodeRingColor);
+
+  // 4. Bottom-right node (r=2.8)
+  const brR = Math.max(1, 2.8 * S);
+  fillCircle(pixels, outputSize, brCX, brCY, brR, nodeFill);
+  strokeCircle(pixels, outputSize, brCX, brCY, brR, nodeRingW, nodeRingColor);
+
+  // 5. Top node (r=3.5, green accent ring — drawn last so it's on top)
+  const topR = Math.max(1.2, 3.5 * S);
+  fillCircle(pixels, outputSize, topCX, topCY, topR, nodeFill);
+  // Green accent ring: SVG stroke="#4ade80" strokeWidth="1.2"
+  const greenRingW = Math.max(0.5, 1.2 * S);
+  const greenColor: RGBA = [0x4a, 0xde, 0x80, 255]; // #4ade80
+  strokeCircle(pixels, outputSize, topCX, topCY, topR, greenRingW, greenColor);
+
+  return pixels;
+}
 
 // ---------------------------------------------------------------------------
 // PNG encoder
@@ -202,7 +375,7 @@ function pngChunk(type: string, data: Buffer): Buffer {
 }
 
 /**
- * Encode a 32×32 RGBA pixel buffer as a PNG file.
+ * Encode a SIZE×SIZE RGBA pixel buffer as a PNG file.
  * Uses filter type 0 (None) per scanline for simplicity, then DEFLATE.
  */
 function encodePNG(rgba: Uint8Array, width: number, height: number): Buffer {
@@ -221,7 +394,6 @@ function encodePNG(rgba: Uint8Array, width: number, height: number): Buffer {
   for (let y = 0; y < height; y++) {
     const rowOffset = y * (1 + width * 4);
     rawRows[rowOffset] = 0; // filter type: None
-    // Copy row bytes from the Uint8Array into the Buffer
     const rowStart = y * width * 4;
     for (let i = 0; i < width * 4; i++) {
       rawRows[rowOffset + 1 + i] = rgba[rowStart + i];
@@ -231,14 +403,11 @@ function encodePNG(rgba: Uint8Array, width: number, height: number): Buffer {
   // Compress with DEFLATE (zlib)
   const compressed = zlib.deflateSync(rawRows, { level: 9 });
 
-  // IEND
-  const iend = Buffer.alloc(0);
-
   return Buffer.concat([
     sig,
     pngChunk('IHDR', ihdr),
     pngChunk('IDAT', compressed),
-    pngChunk('IEND', iend),
+    pngChunk('IEND', Buffer.alloc(0)),
   ]);
 }
 
@@ -247,7 +416,7 @@ function encodePNG(rgba: Uint8Array, width: number, height: number): Buffer {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal .ico file containing a single 32×32 RGBA image.
+ * Build a minimal .ico file containing a single 16×16 PNG-embedded image.
  *
  * ICO format reference:
  *   https://en.wikipedia.org/wiki/ICO_(file_format)
@@ -263,24 +432,23 @@ function encodeICO(pngData: Buffer, width: number, height: number): Buffer {
     0x01, 0x00,       // Number of images: 1
   ]);
 
-  // Image data size and offset as little-endian uint32
-  const imgSizeLE = Buffer.allocUnsafe(4);
-  imgSizeLE.writeUInt32LE(pngData.length, 0);
+  const imgSizeLE   = Buffer.allocUnsafe(4);
   const imgOffsetLE = Buffer.allocUnsafe(4);
+  imgSizeLE.writeUInt32LE(pngData.length, 0);
   imgOffsetLE.writeUInt32LE(6 + 16, 0); // 6-byte header + 16-byte dir entry
 
-  // Directory entry (16 bytes per image)
+  // Directory entry (16 bytes)
   const entry = Buffer.concat([
     Buffer.from([
-      width & 0xff,   // Width  (0 = 256)
+      width  & 0xff,  // Width  (0 = 256)
       height & 0xff,  // Height (0 = 256)
       0x00,           // Colour count (0 = no palette)
       0x00,           // Reserved
       0x01, 0x00,     // Colour planes
       0x20, 0x00,     // Bits per pixel: 32
     ]),
-    imgSizeLE,        // Image data size (little-endian)
-    imgOffsetLE,      // Offset of image data (little-endian)
+    imgSizeLE,
+    imgOffsetLE,
   ]);
 
   return Buffer.concat([header, entry, pngData]);
@@ -292,20 +460,24 @@ function encodeICO(pngData: Buffer, width: number, height: number): Buffer {
 
 const outDir = path.resolve(process.cwd(), 'public');
 
-// Ensure the output directory exists (it always does in this project,
-// but guard against edge cases).
 if (!fs.existsSync(outDir)) {
   fs.mkdirSync(outDir, { recursive: true });
 }
 
-const pngBuffer = encodePNG(pixels as unknown as Buffer & Uint8Array, SIZE, SIZE);
-const icoBuffer = encodeICO(pngBuffer, SIZE, SIZE);
+// favicon-32x32.png — 32×32 logo mark
+const pixels32  = renderLogo(32);
+const png32     = encodePNG(pixels32, 32, 32);
 
-const pngPath = path.join(outDir, 'favicon-32x32.png');
-const icoPath = path.join(outDir, 'favicon.ico');
+// favicon.ico — 16×16 logo mark (traditional browser tab size)
+const pixels16  = renderLogo(16);
+const png16     = encodePNG(pixels16, 16, 16);
+const ico16     = encodeICO(png16, 16, 16);
 
-fs.writeFileSync(pngPath, pngBuffer);
-fs.writeFileSync(icoPath, icoBuffer);
+const png32Path = path.join(outDir, 'favicon-32x32.png');
+const icoPath   = path.join(outDir, 'favicon.ico');
 
-console.log(`✔  Written ${pngPath}  (${pngBuffer.length} bytes)`);
-console.log(`✔  Written ${icoPath}   (${icoBuffer.length} bytes)`);
+fs.writeFileSync(png32Path, png32);
+fs.writeFileSync(icoPath,   ico16);
+
+console.log(`✔  Written ${png32Path}  (${png32.length} bytes)`);
+console.log(`✔  Written ${icoPath}    (${ico16.length} bytes)`);

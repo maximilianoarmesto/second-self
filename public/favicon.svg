@@ -1,28 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!--
-    Second Self logo mark — 32×32
-    Black rounded square with white pixel-grid "SS" lettering.
-    Matches the sidebar brand badge (bg-primary / rounded-lg).
-  -->
-  <rect x="2" y="2" width="28" height="28" rx="4" ry="4" fill="#000000"/>
-  <!-- Left "S" -->
-  <rect x="11" y="13" width="3" height="1" fill="#ffffff"/>
-  <rect x="10" y="14" width="1" height="1" fill="#ffffff"/>
-  <rect x="14" y="14" width="1" height="1" fill="#ffffff"/>
-  <rect x="10" y="15" width="1" height="1" fill="#ffffff"/>
-  <rect x="11" y="16" width="3" height="1" fill="#ffffff"/>
-  <rect x="14" y="17" width="1" height="1" fill="#ffffff"/>
-  <rect x="10" y="18" width="1" height="1" fill="#ffffff"/>
-  <rect x="14" y="18" width="1" height="1" fill="#ffffff"/>
-  <rect x="11" y="19" width="3" height="1" fill="#ffffff"/>
-  <!-- Right "S" -->
-  <rect x="18" y="13" width="3" height="1" fill="#ffffff"/>
-  <rect x="17" y="14" width="1" height="1" fill="#ffffff"/>
-  <rect x="21" y="14" width="1" height="1" fill="#ffffff"/>
-  <rect x="17" y="15" width="1" height="1" fill="#ffffff"/>
-  <rect x="18" y="16" width="3" height="1" fill="#ffffff"/>
-  <rect x="21" y="17" width="1" height="1" fill="#ffffff"/>
-  <rect x="17" y="18" width="1" height="1" fill="#ffffff"/>
-  <rect x="21" y="18" width="1" height="1" fill="#ffffff"/>
-  <rect x="18" y="19" width="3" height="1" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" aria-label="Second Self logo" role="img">
+  <defs>
+    <!-- Background: deep indigo → violet -->
+    <linearGradient id="logo-grad-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <!-- Node fill: electric blue → cyan -->
+    <linearGradient id="logo-grad-node" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <!-- Subtle glow for top node -->
+    <filter id="logo-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Rounded-square background -->
+  <rect x="1" y="1" width="30" height="30" rx="6" ry="6" fill="url(#logo-grad-bg)"/>
+
+  <!-- Connection strokes (behind nodes) -->
+  <g stroke="rgba(255,255,255,0.30)" stroke-width="1.5" stroke-linecap="round">
+    <!-- Top → Bottom-left -->
+    <line x1="16" y1="8.5" x2="8.5" y2="22"/>
+    <!-- Top → Bottom-right -->
+    <line x1="16" y1="8.5" x2="23.5" y2="22"/>
+    <!-- Bottom-left → Bottom-right -->
+    <line x1="8.5" y1="22" x2="23.5" y2="22"/>
+  </g>
+
+  <!-- Bottom-left node -->
+  <circle cx="8.5" cy="22" r="2.8" fill="url(#logo-grad-node)"/>
+  <circle cx="8.5" cy="22" r="2.8" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="0.6"/>
+
+  <!-- Bottom-right node -->
+  <circle cx="23.5" cy="22" r="2.8" fill="url(#logo-grad-node)"/>
+  <circle cx="23.5" cy="22" r="2.8" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="0.6"/>
+
+  <!-- Top node — primary focal point with green accent ring -->
+  <circle cx="16" cy="8.5" r="3.5" fill="url(#logo-grad-node)" filter="url(#logo-glow)"/>
+  <circle cx="16" cy="8.5" r="3.5" fill="none" stroke="#4ade80" stroke-width="1.2"/>
 </svg>
