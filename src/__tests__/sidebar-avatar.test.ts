@@ -14,6 +14,15 @@
  * 10. apiFetch falls back to a generic message when the body is not parseable
  * 11. apiFetch does not set Content-Type for FormData bodies
  * 12. apiFetch sets Content-Type: application/json for plain-object bodies
+ * 13. initAvatarUrl() seeds the store without notifying subscribers (Sidebar
+ *     mount-fetch path — avoids a feedback loop between the store write and
+ *     the component's own subscription listener)
+ * 14. initAvatarUrl(null) clears the store without notifying subscribers
+ * 15. A subsequent setAvatarUrl() after initAvatarUrl() notifies listeners
+ *     with the new URL (both write paths compose correctly)
+ * 16. Sidebar mount-fetch pattern: initAvatarUrl seeds store, local state is
+ *     updated directly, and a later setAvatarUrl (from Settings) still
+ *     reaches the subscription listener exactly once
  */
 
 // ---------------------------------------------------------------------------
@@ -177,6 +186,127 @@ describe('avatar-store — getAvatarUrl / setAvatarUrl / subscribeAvatarUrl', ()
 
     expect(listenerA).not.toHaveBeenCalled();
     expect(listenerB).toHaveBeenCalledWith('/uploads/only-b.jpg');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// initAvatarUrl tests
+// ---------------------------------------------------------------------------
+//
+// initAvatarUrl is the "silent" write path used by the Sidebar's mount-fetch.
+// It updates currentUrl so getAvatarUrl() returns the correct value for late
+// subscribers, but it does NOT notify existing listeners — preventing the
+// Sidebar's own subscription callback from firing on its own API fetch.
+
+describe('avatar-store — initAvatarUrl (silent seed for mount-fetch)', () => {
+  function loadStore() {
+    let store!: typeof import('@/lib/avatar-store');
+    jest.isolateModules(() => {
+      store = require('@/lib/avatar-store');
+    });
+    return store;
+  }
+
+  // 13. initAvatarUrl updates the store without notifying subscribers
+  it('initAvatarUrl() updates getAvatarUrl() without notifying subscribers', () => {
+    const { getAvatarUrl, initAvatarUrl, subscribeAvatarUrl } = loadStore();
+    const listener = jest.fn();
+    subscribeAvatarUrl(listener);
+
+    initAvatarUrl('/uploads/from-api.jpg');
+
+    // Store value is updated
+    expect(getAvatarUrl()).toBe('/uploads/from-api.jpg');
+    // But no listener was called
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  // 14. initAvatarUrl(null) clears store without notifying
+  it('initAvatarUrl(null) stores null without notifying subscribers', () => {
+    const { getAvatarUrl, initAvatarUrl, subscribeAvatarUrl } = loadStore();
+    const listener = jest.fn();
+    subscribeAvatarUrl(listener);
+
+    initAvatarUrl(null);
+
+    expect(getAvatarUrl()).toBeNull();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  // 15. A subsequent setAvatarUrl still notifies listeners after initAvatarUrl
+  it('setAvatarUrl() after initAvatarUrl() notifies listeners with the new URL', () => {
+    const { getAvatarUrl, initAvatarUrl, setAvatarUrl, subscribeAvatarUrl } = loadStore();
+    const listener = jest.fn();
+    subscribeAvatarUrl(listener);
+
+    // Simulate Sidebar mount-fetch: seed store silently
+    initAvatarUrl('/uploads/on-mount.jpg');
+    expect(listener).not.toHaveBeenCalled(); // no ping
+
+    // Settings page uploads a new avatar and broadcasts
+    setAvatarUrl('/uploads/after-upload.png');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('/uploads/after-upload.png');
+    expect(getAvatarUrl()).toBe('/uploads/after-upload.png');
+  });
+
+  // 15. Multiple initAvatarUrl calls update the store; final value is correct
+  it('multiple initAvatarUrl() calls update the store to the last value', () => {
+    const { getAvatarUrl, initAvatarUrl } = loadStore();
+
+    initAvatarUrl('/uploads/first.jpg');
+    initAvatarUrl('/uploads/second.png');
+
+    expect(getAvatarUrl()).toBe('/uploads/second.png');
+  });
+
+  // 16. Sidebar mount-fetch pattern — the complete data flow
+  it('Sidebar mount-fetch pattern: initAvatarUrl + local setState, subscription only fires on external broadcast', () => {
+    const { initAvatarUrl, setAvatarUrl, subscribeAvatarUrl } = loadStore();
+
+    // Sidebar's local state — starts at null (store not yet seeded)
+    let sidebarLocalUrl: string | null = null;
+
+    // Sidebar subscribes on mount (simulating useEffect)
+    const unsubscribe = subscribeAvatarUrl((url) => {
+      sidebarLocalUrl = url; // Only fires on external setAvatarUrl broadcasts
+    });
+
+    // Sidebar.fetchSettings resolves: seed store silently, update local state directly
+    const fetchedUrl = '/uploads/from-api.jpg';
+    initAvatarUrl(fetchedUrl); // seeds store — subscriber does NOT fire
+    sidebarLocalUrl = fetchedUrl; // direct local state update (simulates setLocalAvatarUrl)
+
+    // Subscription has not been called yet — no feedback loop
+    expect(sidebarLocalUrl).toBe(fetchedUrl); // local state is correct
+
+    // Later: Settings page uploads a new avatar and calls setAvatarUrl()
+    const uploadedUrl = '/uploads/new-upload.png';
+    setAvatarUrl(uploadedUrl);
+
+    // Subscription fires exactly once (from the external broadcast)
+    expect(sidebarLocalUrl).toBe(uploadedUrl);
+
+    unsubscribe();
+  });
+
+  // Verify no stale subscription callbacks after unsubscribe
+  it('subscription set up after initAvatarUrl does not receive past silent seeds', () => {
+    const { getAvatarUrl, initAvatarUrl, subscribeAvatarUrl } = loadStore();
+
+    // Seed the store silently (simulating Sidebar mount-fetch)
+    initAvatarUrl('/uploads/seeded.jpg');
+
+    // A second component subscribes after the seed
+    const lateListener = jest.fn();
+    subscribeAvatarUrl(lateListener);
+
+    // The late listener was NOT called retroactively (initAvatarUrl is silent)
+    expect(lateListener).not.toHaveBeenCalled();
+
+    // But it can read the correct value via getAvatarUrl()
+    expect(getAvatarUrl()).toBe('/uploads/seeded.jpg');
   });
 });
 

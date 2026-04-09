@@ -17,7 +17,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/ui/Logo';
 import { apiFetch } from '@/lib/api';
-import { getAvatarUrl, setAvatarUrl, subscribeAvatarUrl } from '@/lib/avatar-store';
+import { getAvatarUrl, initAvatarUrl, subscribeAvatarUrl } from '@/lib/avatar-store';
 import type { SettingsData } from '@/types/settings';
 
 const COLLAPSED_KEY = 'sidebar-collapsed';
@@ -112,9 +112,15 @@ export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarP
     try {
       const data = await apiFetch<SettingsData>('/api/settings');
       const url = data.avatarUrl ?? null;
-      // Update both the local state and the shared store so other components
-      // that subscribe to the store are also kept in sync.
-      setAvatarUrl(url);
+      // Seed the shared store so late subscribers (and getAvatarUrl() calls
+      // elsewhere) see the correct value — WITHOUT broadcasting to listeners.
+      // We use initAvatarUrl here (not setAvatarUrl) to avoid triggering our
+      // own subscribeAvatarUrl listener, which would cause a redundant state
+      // update from the component's own API fetch.
+      initAvatarUrl(url);
+      // Update local state directly — this is the authoritative re-render for
+      // the Sidebar itself; the subscription only handles external broadcasts
+      // (e.g. avatar uploaded in Settings while the Sidebar is mounted).
       setLocalAvatarUrl(url);
       setCloneName(data.cloneName ?? '');
     } catch {
