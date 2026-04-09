@@ -36,14 +36,18 @@ services:
       SEED_USER_EMAIL: ${SEED_USER_EMAIL:-admin@example.com}
       SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-changeme123}
     volumes:
-      # Persist uploaded avatar images across container restarts and rebuilds.
-      # The named volume is mounted at the path the app writes to so that:
-      #   1. Files survive `docker-compose down && docker-compose up` (no rebuild).
-      #   2. Files survive `docker-compose down && docker-compose up --build`
-      #      because the named volume is external to the image layer.
+      # Bind-mount the host's ./public/uploads directory into the container so
+      # that uploaded avatar images:
+      #   1. Survive `docker-compose down && docker-compose up` (no rebuild).
+      #   2. Survive `docker-compose down && docker-compose up --build` because
+      #      the files live on the host filesystem, not inside the image layer.
+      #   3. Are immediately accessible on the host for inspection or backup.
+      # Docker creates ./public/uploads on the host automatically if it does
+      # not already exist.  scripts/start.sh ensures the directory is writable
+      # by the container's node user at runtime.
       # The /api/uploads/[filename] route reads files from this directory at
       # request time, so no static-manifest rebuild is required after uploads.
-      - uploads_data:/app/public/uploads
+      - ./public/uploads:/app/public/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,8 +56,6 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
-  uploads_data:
     driver: local
 
 networks:
