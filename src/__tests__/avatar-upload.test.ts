@@ -9,7 +9,7 @@
  *  5. The settings record is upserted with the new avatarUrl
  *  6. Returns { avatarUrl } in the response body
  *  7. Old uploaded file is deleted from disk when a new one is uploaded
- *  8. avatarUrl stored in the DB is a relative URL (e.g. /uploads/<filename>)
+ *  8. avatarUrl stored in the DB is a relative URL (e.g. /api/uploads/<filename>)
  *  9. fs.unlink receives the absolute filesystem path, NOT the relative URL
  * 10. deletePreviousAvatar never calls fs.unlink on UPLOADS_DIR itself
  *
@@ -164,7 +164,7 @@ beforeEach(() => {
 
   // Default: no existing settings record
   (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue(null);
-  (mockPrisma.settings.upsert as jest.Mock).mockResolvedValue({ avatarUrl: '/uploads/test.jpg' });
+  (mockPrisma.settings.upsert as jest.Mock).mockResolvedValue({ avatarUrl: '/api/uploads/test.jpg' });
 
   // Default: all fs operations succeed
   (mockFs.mkdir as jest.Mock).mockResolvedValue(undefined);
@@ -183,7 +183,7 @@ describe('Happy path', () => {
 
     expect(response.status).toBe(200);
     expect(body).toHaveProperty('avatarUrl');
-    expect(body.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+    expect(body.avatarUrl).toMatch(/^\/api\/uploads\/.+\.jpg$/);
   });
 
   it('accepts a valid PNG upload and returns 200 with avatarUrl', async () => {
@@ -192,7 +192,7 @@ describe('Happy path', () => {
 
     expect(response.status).toBe(200);
     expect(body).toHaveProperty('avatarUrl');
-    expect(body.avatarUrl).toMatch(/^\/uploads\/.+\.png$/);
+    expect(body.avatarUrl).toMatch(/^\/api\/uploads\/.+\.png$/);
   });
 
   it('creates the uploads directory before writing the file', async () => {
@@ -226,8 +226,8 @@ describe('Happy path', () => {
     expect(mockPrisma.settings.upsert).toHaveBeenCalledTimes(1);
     const call = (mockPrisma.settings.upsert as jest.Mock).mock.calls[0][0];
     expect(call.where).toEqual({ ownerId: 1 });
-    expect(call.update.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
-    expect(call.create.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+    expect(call.update.avatarUrl).toMatch(/^\/api\/uploads\/.+\.jpg$/);
+    expect(call.create.avatarUrl).toMatch(/^\/api\/uploads\/.+\.jpg$/);
   });
 
   it('the upsert create block includes required default fields', async () => {
@@ -249,14 +249,14 @@ describe('Happy path', () => {
 // ===========================================================================
 
 describe('avatarUrl stored in DB is a relative URL', () => {
-  it('the upserted avatarUrl starts with /uploads/ — not an absolute filesystem path', async () => {
+  it('the upserted avatarUrl starts with /api/uploads/ — not an absolute filesystem path', async () => {
     await POST(validJpegRequest());
 
     const call = (mockPrisma.settings.upsert as jest.Mock).mock.calls[0][0];
     const stored: string = call.update.avatarUrl;
 
-    // Must be a relative URL like /uploads/<filename>
-    expect(stored).toMatch(/^\/uploads\//);
+    // Must be a relative URL like /api/uploads/<filename>
+    expect(stored).toMatch(/^\/api\/uploads\//);
     // Must NOT be an absolute filesystem path like /app/public/uploads/...
     // or contain OS-level path components
     expect(stored).not.toContain(process.cwd());
@@ -274,9 +274,9 @@ describe('avatarUrl stored in DB is a relative URL', () => {
     // The response must reflect the same relative URL
     const response = await POST(validJpegRequest());
     const body = await response.json();
-    expect(body.avatarUrl).toMatch(/^\/uploads\//);
-    // Both must follow the same /uploads/<filename> pattern
-    expect(storedUrl).toMatch(/^\/uploads\//);
+    expect(body.avatarUrl).toMatch(/^\/api\/uploads\//);
+    // Both must follow the same /api/uploads/<filename> pattern
+    expect(storedUrl).toMatch(/^\/api\/uploads\//);
   });
 
   it('the relative URL is browser-accessible: starts with / and has no server-side path segments', async () => {

@@ -35,6 +35,15 @@ services:
       JWT_SECRET: ${JWT_SECRET:-}
       SEED_USER_EMAIL: ${SEED_USER_EMAIL:-admin@example.com}
       SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-changeme123}
+    volumes:
+      # Persist uploaded avatar images across container restarts and rebuilds.
+      # The named volume is mounted at the path the app writes to so that:
+      #   1. Files survive `docker-compose down && docker-compose up` (no rebuild).
+      #   2. Files survive `docker-compose down && docker-compose up --build`
+      #      because the named volume is external to the image layer.
+      # The /api/uploads/[filename] route reads files from this directory at
+      # request time, so no static-manifest rebuild is required after uploads.
+      - uploads_data:/app/public/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +52,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  uploads_data:
     driver: local
 
 networks:

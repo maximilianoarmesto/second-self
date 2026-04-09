@@ -14,6 +14,19 @@ const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png']);
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
 
+/**
+ * URL prefix used to build the publicly accessible avatar URL that is stored
+ * in the database and returned to clients.
+ *
+ * We serve uploads through the dedicated /api/uploads/[filename] route rather
+ * than relying on Next.js static file serving from /public/uploads/.  In the
+ * standalone Docker build Next.js does not automatically serve files written
+ * at runtime to public/uploads/ (the static manifest is baked at build time),
+ * so the API route reads directly from disk and works correctly with a Docker
+ * volume mount at /app/public/uploads.
+ */
+const AVATAR_URL_PREFIX = '/api/uploads';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -39,8 +52,8 @@ function generateFilename(ext: string): string {
 
 /**
  * Deletes a previously stored avatar from disk.
- * The `avatarUrl` stored in the DB is a relative public path such as
- * `/uploads/1717000000000-a3f9c2.png`; `path.basename` extracts the filename
+ * The `avatarUrl` stored in the DB is a relative path such as
+ * `/api/uploads/1717000000000-a3f9c2.png`; `path.basename` extracts the filename
  * component, which is then joined with `UPLOADS_DIR` to form the absolute
  * filesystem path for `fs.unlink`.
  *
@@ -139,7 +152,10 @@ export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) =
     await fs.writeFile(filePath, buffer);
 
     // ---- Upsert settings with the new avatarUrl ----------------------------
-    const avatarUrl = `/uploads/${filename}`;
+    // Store the /api/uploads/<filename> URL so the file is served through the
+    // dedicated API route, which reads from disk at request time and therefore
+    // works correctly in Docker with a runtime volume mount.
+    const avatarUrl = `${AVATAR_URL_PREFIX}/${filename}`;
 
     await prisma.settings.upsert({
       where: { ownerId: userId },

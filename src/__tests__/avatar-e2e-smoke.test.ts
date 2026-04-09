@@ -149,8 +149,8 @@ const mockFs = fs as jest.Mocked<typeof fs>;
 process.env.JWT_SECRET = SMOKE_JWT_SECRET;
 
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
-const MOCK_AVATAR_URL_JPG = '/uploads/1700000000000-abc123.jpg';
-const MOCK_AVATAR_URL_PNG = '/uploads/1700000000000-abc456.png';
+const MOCK_AVATAR_URL_JPG = '/api/uploads/1700000000000-abc123.jpg';
+const MOCK_AVATAR_URL_PNG = '/api/uploads/1700000000000-abc456.png';
 const CLONE_NAME = 'Alice Smoke';
 const SMOKE_SESSION_COOKIE = makeSmokeToken();
 
@@ -268,11 +268,11 @@ describe('Surface A — Settings page upload flow', () => {
       expect(body).toHaveProperty('avatarUrl');
     });
 
-    it('avatarUrl starts with /uploads/ and ends with .jpg for JPEG upload', async () => {
+    it('avatarUrl starts with /api/uploads/ and ends with .jpg for JPEG upload', async () => {
       const req = buildUploadRequest('profile.jpg', 'image/jpeg');
       const res = await avatarPOST(req);
       const body = await res.json();
-      expect(body.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+      expect(body.avatarUrl).toMatch(/^\/api\/uploads\/.+\.jpg$/);
     });
 
     it('writes the file to disk inside UPLOADS_DIR on JPEG upload', async () => {
@@ -292,8 +292,8 @@ describe('Surface A — Settings page upload flow', () => {
         update: { avatarUrl: string };
         create: { avatarUrl: string };
       };
-      expect(call.update.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
-      expect(call.create.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+      expect(call.update.avatarUrl).toMatch(/^\/api\/uploads\/.+\.jpg$/);
+      expect(call.create.avatarUrl).toMatch(/^\/api\/uploads\/.+\.jpg$/);
     });
   });
 
@@ -313,11 +313,11 @@ describe('Surface A — Settings page upload flow', () => {
       expect(body).toHaveProperty('avatarUrl');
     });
 
-    it('avatarUrl starts with /uploads/ and ends with .png for PNG upload', async () => {
+    it('avatarUrl starts with /api/uploads/ and ends with .png for PNG upload', async () => {
       const req = buildUploadRequest('avatar.png', 'image/png');
       const res = await avatarPOST(req);
       const body = await res.json();
-      expect(body.avatarUrl).toMatch(/^\/uploads\/.+\.png$/);
+      expect(body.avatarUrl).toMatch(/^\/api\/uploads\/.+\.png$/);
     });
 
     it('writes the file to disk inside UPLOADS_DIR on PNG upload', async () => {
@@ -337,8 +337,8 @@ describe('Surface A — Settings page upload flow', () => {
         update: { avatarUrl: string };
         create: { avatarUrl: string };
       };
-      expect(call.update.avatarUrl).toMatch(/^\/uploads\/.+\.png$/);
-      expect(call.create.avatarUrl).toMatch(/^\/uploads\/.+\.png$/);
+      expect(call.update.avatarUrl).toMatch(/^\/api\/uploads\/.+\.png$/);
+      expect(call.create.avatarUrl).toMatch(/^\/api\/uploads\/.+\.png$/);
     });
   });
 
@@ -978,18 +978,18 @@ describe('API contract — no 404-generating paths in any surface', () => {
   // ── NC1: Upload API produces valid relative paths ─────────────────────────
 
   describe('NC1: Upload API response paths are valid relative URLs', () => {
-    it('JPG upload produces a /uploads/... path (served by Next.js public dir)', async () => {
+    it('JPG upload produces a /api/uploads/... path (served by the dedicated API route)', async () => {
       const req = buildUploadRequest('test.jpg', 'image/jpeg');
       const res = await avatarPOST(req);
       const body = await res.json();
-      expect(body.avatarUrl).toMatch(/^\/uploads\//);
+      expect(body.avatarUrl).toMatch(/^\/api\/uploads\//);
     });
 
-    it('PNG upload produces a /uploads/... path (served by Next.js public dir)', async () => {
+    it('PNG upload produces a /api/uploads/... path (served by the dedicated API route)', async () => {
       const req = buildUploadRequest('test.png', 'image/png');
       const res = await avatarPOST(req);
       const body = await res.json();
-      expect(body.avatarUrl).toMatch(/^\/uploads\//);
+      expect(body.avatarUrl).toMatch(/^\/api\/uploads\//);
     });
 
     it('upload API never returns an absolute URL that would bypass the static file server', async () => {
