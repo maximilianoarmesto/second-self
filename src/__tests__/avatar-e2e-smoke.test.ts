@@ -67,6 +67,57 @@ jest.mock('crypto', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// JWT mock — allows requireAuth to accept a deterministic session token
+// without a running crypto library.
+// ---------------------------------------------------------------------------
+
+const SMOKE_JWT_SECRET = 'avatar-smoke-test-secret';
+const SMOKE_USER_ID = 1;
+
+/** Minimal fake JWT that encodes userId so requireAuth can extract it. */
+function makeSmokeToken(): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({ userId: SMOKE_USER_ID, email: 'smoke@example.com', name: 'Smoke User', iat: 1700000000, exp: 9999999999 })
+  ).toString('base64url');
+  const sig = Buffer.from(`sig:${SMOKE_JWT_SECRET}`).toString('base64url');
+  return `${header}.${payload}.${sig}`;
+}
+
+jest.mock('jsonwebtoken', () => ({
+  __esModule: true,
+  default: {
+    sign: jest.fn(),
+    verify: (token: string, secret: string) => {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) throw new Error('malformed');
+        return JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+      } catch {
+        throw Object.assign(new Error('invalid token'), { name: 'JsonWebTokenError' });
+      }
+    },
+  },
+  sign: jest.fn(),
+  verify: (token: string, secret: string) => {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) throw new Error('malformed');
+      return JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    } catch {
+      throw Object.assign(new Error('invalid token'), { name: 'JsonWebTokenError' });
+    }
+  },
+  TokenExpiredError: class TokenExpiredError extends Error {
+    constructor(msg: string) { super(msg); this.name = 'TokenExpiredError'; }
+    expiredAt = new Date();
+  },
+  JsonWebTokenError: class JsonWebTokenError extends Error {
+    constructor(msg: string) { super(msg); this.name = 'JsonWebTokenError'; }
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
@@ -95,10 +146,13 @@ const mockFs = fs as jest.Mocked<typeof fs>;
 // Test constants
 // ---------------------------------------------------------------------------
 
+process.env.JWT_SECRET = SMOKE_JWT_SECRET;
+
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
 const MOCK_AVATAR_URL_JPG = '/uploads/1700000000000-abc123.jpg';
 const MOCK_AVATAR_URL_PNG = '/uploads/1700000000000-abc456.png';
 const CLONE_NAME = 'Alice Smoke';
+const SMOKE_SESSION_COOKIE = makeSmokeToken();
 
 // ---------------------------------------------------------------------------
 // Shared settings fixture factory
@@ -135,6 +189,7 @@ function makeSettings(overrides: Partial<{
 
 /**
  * Builds a multipart/form-data upload request for POST /api/settings/avatar.
+ * Includes the smoke session cookie so requireAuth can identify the user.
  */
 function buildUploadRequest(filename: string, mimeType: string, sizeBytes = 512): NextRequest {
   const buffer = Buffer.alloc(sizeBytes, 0x42);
@@ -144,9 +199,20 @@ function buildUploadRequest(filename: string, mimeType: string, sizeBytes = 512)
   formData.append('image', file);
   const req = new Request('http://localhost/api/settings/avatar', {
     method: 'POST',
+    headers: { cookie: `session=${SMOKE_SESSION_COOKIE}` },
     body: formData,
   });
   return req as unknown as NextRequest;
+}
+
+/**
+ * Builds a minimal authenticated NextRequest for GET /api/settings.
+ * The session cookie allows requireAuth to identify the smoke-test user.
+ */
+function buildSettingsRequest(): NextRequest {
+  return new Request('http://localhost/api/settings', {
+    headers: { cookie: `session=${SMOKE_SESSION_COOKIE}` },
+  }) as unknown as NextRequest;
 }
 
 /**
@@ -490,7 +556,7 @@ describe('Surface C — Sidebar avatar persists after browser reload', () => {
     it('response includes avatarUrl when a JPG avatar is stored in DB', async () => {
       mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: MOCK_AVATAR_URL_JPG }));
 
-      const res = await settingsGET();
+      const res = await settingsGET(buildSettingsRequest());
       expect(res.status).toBe(200);
       const body = await res.json();
 
@@ -500,7 +566,7 @@ describe('Surface C — Sidebar avatar persists after browser reload', () => {
     it('response includes avatarUrl when a PNG avatar is stored in DB', async () => {
       mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: MOCK_AVATAR_URL_PNG }));
 
-      const res = await settingsGET();
+      const res = await settingsGET(buildSettingsRequest());
       const body = await res.json();
       expect(body.avatarUrl).toBe(MOCK_AVATAR_URL_PNG);
     });
@@ -510,7 +576,7 @@ describe('Surface C — Sidebar avatar persists after browser reload', () => {
       // so the Sidebar can reliably use `data.avatarUrl ?? null`.
       mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: null }));
 
-      const res = await settingsGET();
+      const res = await settingsGET(buildSettingsRequest());
       const body = await res.json();
 
       expect(Object.prototype.hasOwnProperty.call(body, 'avatarUrl')).toBe(true);
@@ -522,7 +588,7 @@ describe('Surface C — Sidebar avatar persists after browser reload', () => {
         makeSettings({ cloneName: CLONE_NAME, avatarUrl: MOCK_AVATAR_URL_JPG })
       );
 
-      const res = await settingsGET();
+      const res = await settingsGET(buildSettingsRequest());
       const body = await res.json();
       expect(body).toHaveProperty('cloneName', CLONE_NAME);
     });
@@ -755,7 +821,7 @@ describe('Null fallback — all surfaces show clean placeholder when avatarUrl i
     it('returns null for avatarUrl when the settings record has no avatar', async () => {
       mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: null }));
 
-      const res = await settingsGET();
+      const res = await settingsGET(buildSettingsRequest());
       const body = await res.json();
       expect(body.avatarUrl).toBeNull();
     });
@@ -766,7 +832,7 @@ describe('Null fallback — all surfaces show clean placeholder when avatarUrl i
       // The GET handler calls prisma.settings.create when findUnique returns null.
       mockSettingsCreate.mockResolvedValue(makeSettings({ avatarUrl: null, cloneName: 'My Second Self' }));
 
-      const res = await settingsGET();
+      const res = await settingsGET(buildSettingsRequest());
       const body = await res.json();
       // avatarUrl must be explicitly null — not undefined (contract)
       expect(body.avatarUrl).toBeNull();
@@ -1060,7 +1126,7 @@ describe('Full pipeline — upload → sidebar update → reload → public clon
     // Simulate what was saved in Step 1 being returned after reload
     mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: MOCK_AVATAR_URL_JPG }));
 
-    const res = await settingsGET();
+    const res = await settingsGET(buildSettingsRequest());
     const body = await res.json();
     expect(body.avatarUrl).toBe(MOCK_AVATAR_URL_JPG);
   });
@@ -1122,7 +1188,7 @@ describe('Full pipeline — upload → sidebar update → reload → public clon
 
     // ── Sidebar reload: settings API returns PNG URL ──
     mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: pngUrl }));
-    const settingsRes = await settingsGET();
+    const settingsRes = await settingsGET(buildSettingsRequest());
     const settingsBody = await settingsRes.json();
     expect(settingsBody.avatarUrl).toBe(pngUrl);
 
@@ -1147,7 +1213,7 @@ describe('Full pipeline — upload → sidebar update → reload → public clon
 
     // ── Settings API: null avatarUrl ──
     mockSettingsFindUnique.mockResolvedValue(makeSettings({ avatarUrl: null }));
-    const settingsRes = await settingsGET();
+    const settingsRes = await settingsGET(buildSettingsRequest());
     const settingsBody = await settingsRes.json();
     expect(settingsBody.avatarUrl).toBeNull();
 

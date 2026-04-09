@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ingestDocument } from '@/lib/services/document-service';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const apiKey = request.headers.get('x-openai-api-key');
     if (!apiKey) {
       return NextResponse.json(
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
         filename,
         originalFilename: file.name,
         fileSize: file.size,
-        ownerId: 1,
+        ownerId: userId,
         status: 'PENDING',
       },
     });
@@ -49,4 +53,4 @@ export async function POST(request: NextRequest) {
     console.error('Upload error:', error);
     return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 });
   }
-}
+});

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -76,8 +78,10 @@ async function deletePreviousAvatar(avatarUrl: string): Promise<void> {
 // POST /api/settings/avatar
 // ---------------------------------------------------------------------------
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     // ---- Parse multipart form data ----------------------------------------
     let formData: FormData;
     try {
@@ -124,7 +128,7 @@ export async function POST(request: NextRequest) {
 
     // ---- Fetch current settings to find any existing avatar -----------------
     const currentSettings = await prisma.settings.findUnique({
-      where: { ownerId: 1 },
+      where: { ownerId: userId },
       select: { avatarUrl: true },
     });
 
@@ -138,10 +142,10 @@ export async function POST(request: NextRequest) {
     const avatarUrl = `/uploads/${filename}`;
 
     await prisma.settings.upsert({
-      where: { ownerId: 1 },
+      where: { ownerId: userId },
       update: { avatarUrl },
       create: {
-        ownerId: 1,
+        ownerId: userId,
         cloneName: 'My Second Self',
         systemPrompt: '',
         tone: 'natural',
@@ -163,4 +167,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

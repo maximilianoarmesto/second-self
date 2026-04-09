@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listSessions, createSession } from '@/lib/services/chat-service';
+import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
-export async function GET() {
+export const GET = requireAuth(async (_request: NextRequest, ctx: AuthContext) => {
   try {
-    const sessions = await listSessions(1);
+    const { userId } = ctx.auth;
+
+    const sessions = await prisma.chatSession.findMany({
+      where: { ownerId: userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+
     return NextResponse.json(sessions);
   } catch (error: any) {
     console.error('Error listing sessions:', error);
@@ -12,14 +20,22 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const body = await request.json().catch(() => ({}));
     const { title } = body;
 
-    const session = await createSession(title);
+    const session = await prisma.chatSession.create({
+      data: {
+        title: title || 'New Conversation',
+        ownerId: userId,
+      },
+    });
+
     return NextResponse.json(session, { status: 201 });
   } catch (error: any) {
     console.error('Error creating session:', error);
@@ -28,4 +44,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

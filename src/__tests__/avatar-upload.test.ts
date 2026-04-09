@@ -42,6 +42,55 @@ jest.mock('fs', () => {
 });
 
 // ---------------------------------------------------------------------------
+// JWT mock — allows requireAuth to accept a deterministic session token
+// ---------------------------------------------------------------------------
+
+const AVATAR_TEST_JWT_SECRET = 'avatar-upload-test-secret';
+const AVATAR_TEST_USER_ID = 1;
+
+function makeAvatarTestToken(): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({ userId: AVATAR_TEST_USER_ID, email: 'test@example.com', name: 'Test User', iat: 1700000000, exp: 9999999999 })
+  ).toString('base64url');
+  const sig = Buffer.from(`sig:${AVATAR_TEST_JWT_SECRET}`).toString('base64url');
+  return `${header}.${payload}.${sig}`;
+}
+
+jest.mock('jsonwebtoken', () => ({
+  __esModule: true,
+  default: {
+    sign: jest.fn(),
+    verify: (token: string) => {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) throw new Error('malformed');
+        return JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+      } catch {
+        throw Object.assign(new Error('invalid token'), { name: 'JsonWebTokenError' });
+      }
+    },
+  },
+  sign: jest.fn(),
+  verify: (token: string) => {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) throw new Error('malformed');
+      return JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    } catch {
+      throw Object.assign(new Error('invalid token'), { name: 'JsonWebTokenError' });
+    }
+  },
+  TokenExpiredError: class TokenExpiredError extends Error {
+    constructor(msg: string) { super(msg); this.name = 'TokenExpiredError'; }
+    expiredAt = new Date();
+  },
+  JsonWebTokenError: class JsonWebTokenError extends Error {
+    constructor(msg: string) { super(msg); this.name = 'JsonWebTokenError'; }
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
@@ -61,6 +110,9 @@ const mockFs = fs as jest.Mocked<typeof fs>;
 // ---------------------------------------------------------------------------
 // Test fixture helpers
 // ---------------------------------------------------------------------------
+
+process.env.JWT_SECRET = AVATAR_TEST_JWT_SECRET;
+const AVATAR_TEST_SESSION = makeAvatarTestToken();
 
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
 
@@ -82,9 +134,11 @@ function buildRequest(
   const formData = new FormData();
   formData.append(fieldName, file);
 
-  // Construct a Request with the FormData body so Next.js can parse it
+  // Construct a Request with the FormData body so Next.js can parse it.
+  // Include the session cookie so requireAuth can identify the test user.
   const request = new Request('http://localhost/api/settings/avatar', {
     method: 'POST',
+    headers: { cookie: `session=${AVATAR_TEST_SESSION}` },
     body: formData,
   });
 
@@ -301,6 +355,7 @@ describe('Missing image field', () => {
     formData.append('file', new File(['data'], 'avatar.jpg', { type: 'image/jpeg' }));
     const request = new Request('http://localhost/api/settings/avatar', {
       method: 'POST',
+      headers: { cookie: `session=${AVATAR_TEST_SESSION}` },
       body: formData,
     }) as unknown as NextRequest;
 
@@ -313,6 +368,7 @@ describe('Missing image field', () => {
   it('returns 400 when the form body is completely empty', async () => {
     const request = new Request('http://localhost/api/settings/avatar', {
       method: 'POST',
+      headers: { cookie: `session=${AVATAR_TEST_SESSION}` },
       body: new FormData(),
     }) as unknown as NextRequest;
 

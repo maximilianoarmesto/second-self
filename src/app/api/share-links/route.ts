@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import crypto from 'crypto';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
-export async function GET() {
+export const GET = requireAuth(async (_request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const links = await prisma.shareLink.findMany({
-      where: { ownerId: 1 },
+      where: { ownerId: userId },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -17,10 +21,12 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const body = await request.json().catch(() => ({}));
     const { label } = body;
 
@@ -32,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     const link = await prisma.shareLink.create({
       data: {
-        ownerId: 1,
+        ownerId: userId,
         tokenHash,
         label: label || 'Public Link',
         isActive: true,
@@ -57,4 +63,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

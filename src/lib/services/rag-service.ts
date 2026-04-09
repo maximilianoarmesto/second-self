@@ -1,11 +1,13 @@
 import { prisma } from '@/lib/prisma';
 import { getOpenAIClient } from '@/lib/openai';
 import { searchSimilarChunks, generateEmbeddings } from './document-service';
-import { createSession, saveMessage, getMessages, renameSession } from './chat-service';
+import { saveMessage, getMessages, renameSession } from './chat-service';
 
 interface GenerateResponseParams {
   message: string;
   sessionId?: number;
+  /** The authenticated owner's id — used to scope session creation. */
+  ownerId?: number;
   apiKey: string;
   showSources?: boolean;
   systemPromptOverride?: string;
@@ -57,6 +59,7 @@ export async function generateResponse(
     cloneName,
     tone: toneOverride,
     responseLength: responseLengthOverride,
+    ownerId = 1,
   } = params;
 
   const openai = getOpenAIClient(apiKey);
@@ -65,7 +68,12 @@ export async function generateResponse(
   let sessionId = params.sessionId;
   let isNewSession = false;
   if (!sessionId) {
-    const session = await createSession();
+    const session = await prisma.chatSession.create({
+      data: {
+        title: 'New Conversation',
+        ownerId,
+      },
+    });
     sessionId = session.id;
     isNewSession = true;
   }
@@ -79,12 +87,12 @@ export async function generateResponse(
   // 4. Embed the user query
   const [queryEmbedding] = await generateEmbeddings(apiKey, [message]);
 
-  // 5. Search for similar chunks
-  const chunks = await searchSimilarChunks(queryEmbedding, 5);
+  // 5. Search for similar chunks — scoped to the owner's documents
+  const chunks = await searchSimilarChunks(queryEmbedding, 5, ownerId);
 
-  // 6. Load settings from DB
+  // 6. Load settings from DB (scoped to the authenticated owner)
   const settings = await prisma.settings.findUnique({
-    where: { ownerId: 1 },
+    where: { ownerId },
   });
 
   const name = cloneName || settings?.cloneName || 'the user';

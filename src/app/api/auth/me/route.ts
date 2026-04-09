@@ -1,28 +1,39 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getUserFromRequest } from '@/lib/auth';
 
 /**
  * GET /api/auth/me
  *
- * Returns the current session user derived from the single owner row.
- * In this single-owner application, owner id=1 is always the authenticated
- * user. The endpoint returns a 401 when no owner row exists (i.e. the app
- * has not been initialised yet), which the client treats as "not logged in".
+ * Returns the current session user derived from the JWT session cookie or
+ * Authorization header. Returns 401 when no valid session token is present.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const owner = await prisma.owner.findUnique({ where: { id: 1 } });
+    const payload = getUserFromRequest(request);
+
+    if (!payload) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { id: payload.userId },
+      select: { id: true, email: true, cloneName: true },
+    });
 
     if (!owner) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     // Fetch avatar from the related settings row (may not exist yet)
-    const settings = await prisma.settings.findUnique({ where: { ownerId: 1 } });
+    const settings = await prisma.settings.findUnique({
+      where: { ownerId: owner.id },
+      select: { avatarUrl: true },
+    });
 
     return NextResponse.json({
       id: owner.id,
-      email: (owner as any).email ?? null,
+      email: owner.email ?? null,
       name: owner.cloneName,
       avatarUrl: settings?.avatarUrl ?? null,
     });

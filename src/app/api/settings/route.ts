@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
 // The default system prompt is stored in Settings as the operator-supplied
 // "custom prompt" extension.  The strict first-person persona rules (identity,
@@ -11,23 +13,19 @@ const DEFAULT_SYSTEM_PROMPT =
   'Infer tone, style, and manner of expression from the provided knowledge base context. ' +
   'Be natural, personal, and human. Do not sound robotic.';
 
-export async function GET() {
+export const GET = requireAuth(async (_request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     let settings = await prisma.settings.findUnique({
-      where: { ownerId: 1 },
+      where: { ownerId: userId },
     });
 
     if (!settings) {
-      // Ensure owner exists
-      await prisma.owner.upsert({
-        where: { id: 1 },
-        update: {},
-        create: { id: 1, cloneName: 'My Second Self' },
-      });
-      // Create default settings
+      // Create default settings for this user
       settings = await prisma.settings.create({
         data: {
-          ownerId: 1,
+          ownerId: userId,
           cloneName: 'My Second Self',
           systemPrompt: DEFAULT_SYSTEM_PROMPT,
           tone: 'natural',
@@ -59,21 +57,22 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});
 
-export async function PUT(request: NextRequest) {
+export const PUT = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const body = await request.json();
     const { cloneName, systemPrompt, tone, responseLength, openaiApiKey } = body;
 
-    // Ensure the owner row exists before upserting settings (the settings table
-    // has a foreign-key constraint on owner_id).  Using upsert here avoids a
-    // race condition where a concurrent GET already created the row.
-    await prisma.owner.upsert({
-      where: { id: 1 },
-      update: cloneName !== undefined ? { cloneName } : {},
-      create: { id: 1, cloneName: cloneName || 'My Second Self' },
-    });
+    // Also update the owner's display name when cloneName is provided.
+    if (cloneName !== undefined) {
+      await prisma.owner.update({
+        where: { id: userId },
+        data: { cloneName },
+      });
+    }
 
     // Build update data, only including provided fields.
     // openaiApiKey === null explicitly clears the stored server key.
@@ -89,10 +88,10 @@ export async function PUT(request: NextRequest) {
     }
 
     const settings = await prisma.settings.upsert({
-      where: { ownerId: 1 },
+      where: { ownerId: userId },
       update: updateData,
       create: {
-        ownerId: 1,
+        ownerId: userId,
         cloneName: cloneName || 'My Second Self',
         systemPrompt: systemPrompt || DEFAULT_SYSTEM_PROMPT,
         tone: tone || 'natural',
@@ -125,4 +124,4 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

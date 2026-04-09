@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+export const GET = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     // Use request.nextUrl.searchParams (already parsed by Next.js) rather than
     // constructing a new URL from request.url, which triggers a "Dynamic server
     // usage" bailout during static generation.
@@ -13,7 +17,7 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
     const documents = await prisma.document.findMany({
-      where: { ownerId: 1 },
+      where: { ownerId: userId },
       orderBy: { createdAt: 'desc' },
       take: limit,
       skip: offset,
@@ -49,4 +53,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

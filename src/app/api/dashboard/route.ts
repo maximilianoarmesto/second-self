@@ -1,8 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 
-export async function GET() {
+export const GET = requireAuth(async (_request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const [
       documentCount,
       chunkCount,
@@ -12,18 +16,18 @@ export async function GET() {
       settings,
       activeLinks,
     ] = await Promise.all([
-      prisma.document.count({ where: { ownerId: 1 } }),
-      prisma.documentChunk.count({ where: { document: { ownerId: 1 } } }),
+      prisma.document.count({ where: { ownerId: userId } }),
+      prisma.documentChunk.count({ where: { document: { ownerId: userId } } }),
       // Only count private sessions in the owner's chat-session stat.
-      prisma.chatSession.count({ where: { ownerId: 1, isPublic: false } }),
+      prisma.chatSession.count({ where: { ownerId: userId, isPublic: false } }),
       prisma.document.findMany({
-        where: { ownerId: 1 },
+        where: { ownerId: userId },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
       // Only list private sessions in the recent-chats panel.
       prisma.chatSession.findMany({
-        where: { ownerId: 1, isPublic: false },
+        where: { ownerId: userId, isPublic: false },
         orderBy: { updatedAt: 'desc' },
         take: 5,
         include: {
@@ -32,8 +36,8 @@ export async function GET() {
           },
         },
       }),
-      prisma.settings.findUnique({ where: { ownerId: 1 } }),
-      prisma.shareLink.count({ where: { ownerId: 1, isActive: true } }),
+      prisma.settings.findUnique({ where: { ownerId: userId } }),
+      prisma.shareLink.count({ where: { ownerId: userId, isActive: true } }),
     ]);
 
     return NextResponse.json({
@@ -62,4 +66,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});

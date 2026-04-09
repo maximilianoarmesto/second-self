@@ -2,14 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateResponse } from '@/lib/services/rag-service';
 import { buildCustomPrompt } from '@/lib/settings-prompt';
+import { requireAuth } from '@/lib/middleware/requireAuth';
+import type { AuthContext } from '@/lib/middleware/requireAuth';
 // Retrieval constants are defined in src/lib/config/rag.ts for easy tuning.
 // Importing them here makes the active configuration visible in route-level
 // request logs so operators can confirm the live values without needing to
 // inspect the service layer or trigger an error.
 import { MAX_CHUNKS, MIN_SIMILARITY_THRESHOLD } from '@/lib/config/rag';
 
-export async function POST(request: NextRequest) {
+export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
+    const { userId } = ctx.auth;
+
     const apiKey = request.headers.get('x-openai-api-key');
     if (!apiKey) {
       return NextResponse.json(
@@ -38,7 +42,7 @@ export async function POST(request: NextRequest) {
     // Both values are passed explicitly to generateResponse() — this makes
     // the persona construction visible at the route level and avoids relying
     // on the service's internal DB fallback for the normal private-chat path.
-    const settings = await prisma.settings.findUnique({ where: { ownerId: 1 } });
+    const settings = await prisma.settings.findUnique({ where: { ownerId: userId } });
     const cloneName = settings?.cloneName ?? undefined;
     // Build a composite custom prompt that incorporates the operator's saved
     // systemPrompt together with tone and response-length preferences.
@@ -54,6 +58,7 @@ export async function POST(request: NextRequest) {
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
+      ownerId: userId,
       apiKey,
       showSources: showSources ?? false,
       cloneName,
@@ -75,4 +80,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
