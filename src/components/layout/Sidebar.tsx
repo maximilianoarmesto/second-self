@@ -11,13 +11,13 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  LogOut,
   User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/ui/Logo';
-import { apiFetch } from '@/lib/api';
-import { getAvatarUrl, initAvatarUrl, subscribeAvatarUrl } from '@/lib/avatar-store';
-import type { SettingsData } from '@/types/settings';
+import { setAvatarUrl as broadcastAvatarUrl, getAvatarUrl, initAvatarUrl, subscribeAvatarUrl } from '@/lib/avatar-store';
+import { useAuth } from '@/lib/auth-context';
 
 const COLLAPSED_KEY = 'sidebar-collapsed';
 
@@ -44,11 +44,13 @@ interface AvatarThumbnailProps {
   avatarUrl: string | null;
   /** Display size in pixels — rendered as a perfect circle. */
   size?: number;
+  /** Initials to display when no avatar URL is available (e.g. "JS"). */
+  initials?: string;
 }
 
-function AvatarThumbnail({ avatarUrl, size = 32 }: AvatarThumbnailProps) {
+function AvatarThumbnail({ avatarUrl, size = 32, initials }: AvatarThumbnailProps) {
   const sizePx = `${size}px`;
-  // Track load failures so we can fall back to the placeholder icon instead
+  // Track load failures so we can fall back to the placeholder instead
   // of showing a broken-image element.
   const [imgError, setImgError] = useState(false);
 
@@ -91,7 +93,26 @@ function AvatarThumbnail({ avatarUrl, size = 32 }: AvatarThumbnailProps) {
     );
   }
 
-  // Placeholder icon — shown when no avatar is set or when the image fails to load.
+  // Initials placeholder — shown when no avatar is set or the image fails.
+  // Falls back to a generic User icon when initials are not available.
+  if (initials) {
+    return (
+      <div
+        className="flex-shrink-0 rounded-full bg-secondary border border-border flex items-center justify-center"
+        style={{ width: sizePx, height: sizePx }}
+        aria-hidden="true"
+      >
+        <span
+          className="text-foreground font-semibold leading-none select-none"
+          style={{ fontSize: Math.round(size * 0.38) }}
+        >
+          {initials}
+        </span>
+      </div>
+    );
+  }
+
+  // Generic User icon fallback — when initials are not available.
   return (
     <div
       className="flex-shrink-0 rounded-full bg-secondary border border-border flex items-center justify-center"
@@ -116,57 +137,44 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   // Seed from the module-level store so the avatar is available immediately
   // if the Settings page has already updated it in the same session.
   const [avatarUrl, setLocalAvatarUrl] = useState<string | null>(getAvatarUrl);
-  const [cloneName, setCloneName] = useState<string>('');
 
-  // ---- Fetch settings (avatar + clone name) --------------------------------
+  // Derive the avatar URL: prefer the live store (updated after uploads),
+  // then fall back to the value from the auth context (from login/me response).
+  const resolvedAvatarUrl = avatarUrl ?? user?.avatarUrl ?? null;
 
-  const fetchSettings = React.useCallback(async () => {
-    try {
-      const data = await apiFetch<SettingsData>('/api/settings');
-      const url = data.avatarUrl ?? null;
-      // Seed the shared store so late subscribers (and getAvatarUrl() calls
-      // elsewhere) see the correct value — WITHOUT broadcasting to listeners.
-      // We use initAvatarUrl here (not setAvatarUrl) to avoid triggering our
-      // own subscribeAvatarUrl listener, which would cause a redundant state
-      // update from the component's own API fetch.
-      initAvatarUrl(url);
-      // Update local state directly — this is the authoritative re-render for
-      // the Sidebar itself; the subscription only handles external broadcasts
-      // (e.g. avatar uploaded in Settings while the Sidebar is mounted).
-      setLocalAvatarUrl(url);
-      setCloneName(data.cloneName ?? '');
-    } catch {
-      // Non-fatal — sidebar continues to render without an avatar
-    }
-  }, []);
+  // Derive initials from the authenticated user's name for the avatar fallback.
+  const initials = React.useMemo<string | undefined>(() => {
+    if (!user?.name) return undefined;
+    const parts = user.name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }, [user?.name]);
 
-  // Fetch on mount
-  useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
-
-  // Re-fetch when the tab regains visibility (e.g. user uploads avatar in
-  // Settings then switches back) so the sidebar stays in sync without a
-  // full page reload.
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchSettings();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchSettings]);
-
+  // ---- Avatar store subscription -------------------------------------------
   // Subscribe to avatar store updates — enables instant reflection after
   // an upload on the Settings page (same tab, same JS bundle).
+
   useEffect(() => {
+    // Seed the store from the auth context's avatarUrl on mount so the store
+    // always reflects the most recently known value.
+    if (user?.avatarUrl !== undefined) {
+      initAvatarUrl(user.avatarUrl);
+    }
     return subscribeAvatarUrl((url) => setLocalAvatarUrl(url));
-  }, []);
+  }, [user?.avatarUrl]);
+
+  // Re-seed local state when the auth context's avatarUrl changes (e.g. after
+  // the user logs in and the session resolves for the first time).
+  useEffect(() => {
+    if (user?.avatarUrl !== undefined) {
+      setLocalAvatarUrl(user.avatarUrl);
+    }
+  }, [user?.avatarUrl]);
 
   // ---- Active route detection ---------------------------------------------
 
@@ -226,32 +234,44 @@ export function Sidebar({ collapsed, onToggle, mobile, onMobileClose }: SidebarP
       <div
         className={cn(
           'px-2 py-3 border-t border-border flex-shrink-0',
-          // Keep a consistent minimum height regardless of collapsed state
-          // so the collapse toggle below doesn't shift position.
           'flex flex-col gap-1'
         )}
       >
-        {/* Avatar + name row */}
+        {/* Avatar + name + logout row */}
         <div
           className={cn(
-            'flex items-center gap-2.5 rounded-lg px-3 py-2',
-            // Use the same secondary hover as nav items for visual consistency
-            'hover:bg-secondary transition-colors'
+            'flex items-center rounded-lg px-3 py-2',
+            // Expanded: avatar | name | logout icon; Collapsed: just avatar
+            (!collapsed || mobile) ? 'gap-2.5' : 'justify-center'
           )}
-          title={
-            collapsed && !mobile
-              ? cloneName || 'Second Self'
-              : undefined
-          }
         >
-          {/* Always render the avatar — it becomes the sole indicator when collapsed */}
-          <AvatarThumbnail avatarUrl={avatarUrl} size={32} />
+          {/* Avatar — always visible; acts as the sole indicator when collapsed */}
+          <AvatarThumbnail
+            avatarUrl={resolvedAvatarUrl}
+            size={32}
+            initials={initials}
+          />
 
-          {/* Name — hidden when collapsed (desktop only) */}
+          {/* Name + logout — visible only in expanded state */}
           {(!collapsed || mobile) && (
-            <span className="text-sm font-medium text-foreground truncate">
-              {cloneName || 'Second Self'}
-            </span>
+            <>
+              <span
+                className="text-sm font-medium text-foreground truncate flex-1 min-w-0"
+                title={user?.name ?? ''}
+              >
+                {user?.name ?? ''}
+              </span>
+
+              {/* Logout button */}
+              <button
+                onClick={logout}
+                className="flex-shrink-0 p-1 rounded-md text-foreground hover:bg-secondary transition-colors"
+                aria-label="Log out"
+                title="Log out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </>
           )}
         </div>
 
@@ -299,3 +319,8 @@ export function useSidebarCollapsed() {
 
   return { collapsed, toggle };
 }
+
+// Re-export broadcastAvatarUrl under the legacy name so the Settings page
+// (which calls setAvatarUrl from '@/lib/avatar-store' directly) continues
+// to work without changes.
+export { broadcastAvatarUrl };
