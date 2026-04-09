@@ -5,22 +5,26 @@
  * mocked so the tests remain deterministic and require no running database.
  *
  * Tests verify:
- *  1.  Owner is upserted with a bcrypt-hashed password (not plaintext)
- *  2.  Settings record is upserted for the new owner
- *  3.  Email defaults to "admin@example.com" when SEED_USER_EMAIL is unset
- *  4.  Email is sourced from SEED_USER_EMAIL when the env var is set
- *  5.  Password defaults to "changeme123" when SEED_USER_PASSWORD is unset
- *  6.  Password is sourced from SEED_USER_PASSWORD when the env var is set
- *  7.  Email is normalised to lowercase before the upsert
- *  8.  Settings upsert uses the owner id returned by the owner upsert
- *  9.  bcrypt is called with BCRYPT_SALT_ROUNDS = 12
- * 10.  $disconnect is always called (even on success)
+ *  1.  User is upserted with a bcrypt-hashed password (not plaintext)
+ *  2.  Owner is upserted for backwards-compatibility (ownerId = 1)
+ *  3.  Settings record is upserted for the new user (userId) and owner (ownerId)
+ *  4.  Email defaults to "admin@example.com" when SEED_USER_EMAIL is unset
+ *  5.  Email is sourced from SEED_USER_EMAIL when the env var is set
+ *  6.  Password defaults to "changeme123" when SEED_USER_PASSWORD is unset
+ *  7.  Password is sourced from SEED_USER_PASSWORD when the env var is set
+ *  8.  Email is normalised to lowercase before the upsert
+ *  9.  Settings upsert uses the user id returned by the user upsert
+ * 10.  bcrypt is called with BCRYPT_SALT_ROUNDS = 12
+ * 11.  $disconnect is always called (even on success)
+ * 12.  Name defaults to "My Second Self" when SEED_USER_NAME is unset
+ * 13.  Name is sourced from SEED_USER_NAME when the env var is set
  */
 
 // ---------------------------------------------------------------------------
 // Module-level mocks
 // ---------------------------------------------------------------------------
 
+const mockUserUpsert = jest.fn();
 const mockOwnerUpsert = jest.fn();
 const mockSettingsUpsert = jest.fn();
 const mockDisconnect = jest.fn();
@@ -29,6 +33,7 @@ const mockBcryptHash = jest.fn();
 // Paths are relative to this file (src/__tests__/) so they resolve correctly.
 jest.mock('../generated/prisma', () => ({
   PrismaClient: jest.fn().mockImplementation(() => ({
+    user: { upsert: (...args: unknown[]) => mockUserUpsert(...args) },
     owner: { upsert: (...args: unknown[]) => mockOwnerUpsert(...args) },
     settings: { upsert: (...args: unknown[]) => mockSettingsUpsert(...args) },
     $disconnect: () => mockDisconnect(),
@@ -49,7 +54,8 @@ jest.mock('bcryptjs', () => ({
 // Constants shared across tests
 // ---------------------------------------------------------------------------
 
-const MOCK_OWNER_ID = 7;
+const MOCK_USER_ID = 7;
+const MOCK_OWNER_ID = 1;
 const MOCK_HASHED_PASSWORD = '$2b$12$mockedhashvalue';
 
 // ---------------------------------------------------------------------------
@@ -86,12 +92,21 @@ function runSeed(): Promise<void> {
 
 function setupHappyPath(): void {
   mockBcryptHash.mockResolvedValue(MOCK_HASHED_PASSWORD);
+  mockUserUpsert.mockResolvedValue({
+    id: MOCK_USER_ID,
+    email: 'admin@example.com',
+    name: 'My Second Self',
+  });
   mockOwnerUpsert.mockResolvedValue({
     id: MOCK_OWNER_ID,
     email: 'admin@example.com',
     cloneName: 'My Second Self',
   });
-  mockSettingsUpsert.mockResolvedValue({ id: 1, ownerId: MOCK_OWNER_ID });
+  mockSettingsUpsert.mockResolvedValue({
+    id: 1,
+    ownerId: MOCK_OWNER_ID,
+    userId: MOCK_USER_ID,
+  });
   mockDisconnect.mockResolvedValue(undefined);
 }
 
@@ -108,6 +123,7 @@ describe('prisma/seed.ts', () => {
     process.env = { ...originalEnv };
     delete process.env.SEED_USER_EMAIL;
     delete process.env.SEED_USER_PASSWORD;
+    delete process.env.SEED_USER_NAME;
     setupHappyPath();
   });
 
@@ -116,13 +132,13 @@ describe('prisma/seed.ts', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 1. Owner upserted with a hashed password (not plaintext)
+  // 1. User upserted with a hashed password (not plaintext)
   // -------------------------------------------------------------------------
-  it('upserts the owner with a bcrypt-hashed password, never the plaintext', async () => {
+  it('upserts the User with a bcrypt-hashed password, never the plaintext', async () => {
     await runSeed();
 
-    expect(mockOwnerUpsert).toHaveBeenCalledTimes(1);
-    const [call] = mockOwnerUpsert.mock.calls;
+    expect(mockUserUpsert).toHaveBeenCalledTimes(1);
+    const [call] = mockUserUpsert.mock.calls;
     const createData = (call[0] as { create: Record<string, unknown> }).create;
 
     expect(createData.passwordHash).toBe(MOCK_HASHED_PASSWORD);
@@ -130,9 +146,23 @@ describe('prisma/seed.ts', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 2. Settings record is upserted for the owner
+  // 2. Owner upserted for backwards-compatibility
   // -------------------------------------------------------------------------
-  it('upserts a Settings record linked to the upserted owner', async () => {
+  it('upserts the legacy Owner row for backwards-compatibility', async () => {
+    await runSeed();
+
+    expect(mockOwnerUpsert).toHaveBeenCalledTimes(1);
+    const [call] = mockOwnerUpsert.mock.calls;
+    const where = (call[0] as { where: Record<string, unknown> }).where;
+
+    // Legacy owner is always id = 1.
+    expect(where.id).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. Settings record is upserted with both userId and ownerId
+  // -------------------------------------------------------------------------
+  it('upserts a Settings record linked to both the User and the Owner', async () => {
     await runSeed();
 
     expect(mockSettingsUpsert).toHaveBeenCalledTimes(1);
@@ -140,36 +170,37 @@ describe('prisma/seed.ts', () => {
     const createData = (call[0] as { create: Record<string, unknown> }).create;
 
     expect(createData.ownerId).toBe(MOCK_OWNER_ID);
+    expect(createData.userId).toBe(MOCK_USER_ID);
   });
 
   // -------------------------------------------------------------------------
-  // 3. Default email when SEED_USER_EMAIL is unset
+  // 4. Default email when SEED_USER_EMAIL is unset
   // -------------------------------------------------------------------------
   it('defaults to "admin@example.com" when SEED_USER_EMAIL is not set', async () => {
     await runSeed();
 
-    const [call] = mockOwnerUpsert.mock.calls;
+    const [call] = mockUserUpsert.mock.calls;
     const where = (call[0] as { where: Record<string, unknown> }).where;
 
     expect(where.email).toBe('admin@example.com');
   });
 
   // -------------------------------------------------------------------------
-  // 4. Email sourced from SEED_USER_EMAIL env var
+  // 5. Email sourced from SEED_USER_EMAIL env var
   // -------------------------------------------------------------------------
   it('uses SEED_USER_EMAIL when the env var is provided', async () => {
     process.env.SEED_USER_EMAIL = 'custom@example.com';
 
     await runSeed();
 
-    const [call] = mockOwnerUpsert.mock.calls;
+    const [call] = mockUserUpsert.mock.calls;
     const where = (call[0] as { where: Record<string, unknown> }).where;
 
     expect(where.email).toBe('custom@example.com');
   });
 
   // -------------------------------------------------------------------------
-  // 5. Default password when SEED_USER_PASSWORD is unset
+  // 6. Default password when SEED_USER_PASSWORD is unset
   // -------------------------------------------------------------------------
   it('defaults the password to "changeme123" when SEED_USER_PASSWORD is not set', async () => {
     await runSeed();
@@ -178,7 +209,7 @@ describe('prisma/seed.ts', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 6. Password sourced from SEED_USER_PASSWORD env var
+  // 7. Password sourced from SEED_USER_PASSWORD env var
   // -------------------------------------------------------------------------
   it('uses SEED_USER_PASSWORD when the env var is provided', async () => {
     process.env.SEED_USER_PASSWORD = 'supersecret99';
@@ -189,14 +220,14 @@ describe('prisma/seed.ts', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Email is normalised to lowercase
+  // 8. Email is normalised to lowercase
   // -------------------------------------------------------------------------
   it('normalises the email to lowercase before upserting', async () => {
     process.env.SEED_USER_EMAIL = 'Admin@EXAMPLE.COM';
 
     await runSeed();
 
-    const [call] = mockOwnerUpsert.mock.calls;
+    const [call] = mockUserUpsert.mock.calls;
     const where = (call[0] as { where: Record<string, unknown> }).where;
     const createData = (call[0] as { create: Record<string, unknown> }).create;
 
@@ -205,28 +236,26 @@ describe('prisma/seed.ts', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 8. Settings upsert uses the owner id returned by the owner upsert
+  // 9. Settings upsert uses the user id returned by the user upsert
   // -------------------------------------------------------------------------
-  it('passes the owner id returned by the upsert to the settings upsert', async () => {
-    const customOwnerId = 42;
-    mockOwnerUpsert.mockResolvedValue({
-      id: customOwnerId,
+  it('passes the user id returned by the user upsert to the settings upsert', async () => {
+    const customUserId = 42;
+    mockUserUpsert.mockResolvedValue({
+      id: customUserId,
       email: 'admin@example.com',
-      cloneName: 'My Second Self',
+      name: 'My Second Self',
     });
 
     await runSeed();
 
     const [call] = mockSettingsUpsert.mock.calls;
-    const where = (call[0] as { where: Record<string, unknown> }).where;
     const createData = (call[0] as { create: Record<string, unknown> }).create;
 
-    expect(where.ownerId).toBe(customOwnerId);
-    expect(createData.ownerId).toBe(customOwnerId);
+    expect(createData.userId).toBe(customUserId);
   });
 
   // -------------------------------------------------------------------------
-  // 9. bcrypt called with 12 salt rounds
+  // 10. bcrypt called with 12 salt rounds
   // -------------------------------------------------------------------------
   it('calls bcrypt.hash with exactly 12 salt rounds', async () => {
     await runSeed();
@@ -237,11 +266,37 @@ describe('prisma/seed.ts', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 10. $disconnect is always called
+  // 11. $disconnect is always called
   // -------------------------------------------------------------------------
   it('calls $disconnect after a successful seed', async () => {
     await runSeed();
 
     expect(mockDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // 12. Default name when SEED_USER_NAME is unset
+  // -------------------------------------------------------------------------
+  it('defaults to "My Second Self" when SEED_USER_NAME is not set', async () => {
+    await runSeed();
+
+    const [call] = mockUserUpsert.mock.calls;
+    const createData = (call[0] as { create: Record<string, unknown> }).create;
+
+    expect(createData.name).toBe('My Second Self');
+  });
+
+  // -------------------------------------------------------------------------
+  // 13. Name sourced from SEED_USER_NAME env var
+  // -------------------------------------------------------------------------
+  it('uses SEED_USER_NAME when the env var is provided', async () => {
+    process.env.SEED_USER_NAME = 'Alice Smith';
+
+    await runSeed();
+
+    const [call] = mockUserUpsert.mock.calls;
+    const createData = (call[0] as { create: Record<string, unknown> }).create;
+
+    expect(createData.name).toBe('Alice Smith');
   });
 });
