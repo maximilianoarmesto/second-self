@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
 import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, Save, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +41,15 @@ function AvatarUpload({ avatarUrl, onUploadSuccess }: AvatarUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Track whether the current avatarUrl failed to load so we can show the
+  // placeholder icon instead of a broken-image element.
+  const [imgError, setImgError] = useState(false);
+
+  // Reset the error flag whenever the URL changes so a newly uploaded image
+  // gets a fresh load attempt.
+  useEffect(() => {
+    setImgError(false);
+  }, [avatarUrl]);
 
   const handleClick = () => {
     // Reset any previous error state so the user can retry cleanly.
@@ -109,17 +117,24 @@ function AvatarUpload({ avatarUrl, onUploadSuccess }: AvatarUploadProps) {
         aria-label="Upload profile image"
         className="group relative flex-shrink-0 w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 transition-colors hover:border-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
       >
-        {/* Avatar image or placeholder icon */}
-        {avatarUrl ? (
-          <Image
+        {/* Avatar image or placeholder icon.
+            A plain <img> is used (instead of next/image) so that:
+            - The onError handler can swap in the placeholder if the file is
+              missing or broken — Next.js <Image> does not forward onError
+              reliably in all configurations.
+            - Local /uploads/ paths are served directly by Next.js's static
+              file server and do not benefit from image optimisation.
+            eslint-disable-next-line @next/next/no-img-element */}
+        {avatarUrl && !imgError ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={avatarUrl}
             alt="Profile avatar"
-            fill
-            sizes="96px"
-            className="object-cover"
-            // Use a cache-busting timestamp so the browser always fetches the
-            // latest version after an upload replaces the file on disk.
+            // key forces a remount (and therefore a fresh network request)
+            // whenever the URL changes after a successful upload.
             key={avatarUrl}
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={() => setImgError(true)}
           />
         ) : (
           <span className="flex h-full w-full items-center justify-center">

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -49,33 +48,50 @@ interface AvatarThumbnailProps {
 
 function AvatarThumbnail({ avatarUrl, size = 32 }: AvatarThumbnailProps) {
   const sizePx = `${size}px`;
+  // Track load failures so we can fall back to the placeholder icon instead
+  // of showing a broken-image element.
+  const [imgError, setImgError] = useState(false);
 
-  if (avatarUrl) {
+  // Reset the error state whenever the URL changes (e.g. after a fresh upload
+  // so the new image gets a clean load attempt).
+  useEffect(() => {
+    setImgError(false);
+  }, [avatarUrl]);
+
+  // Show the avatar image only when a URL is available and it loaded successfully.
+  const showImage = Boolean(avatarUrl) && !imgError;
+
+  if (showImage) {
     return (
       <div
         className="flex-shrink-0 rounded-full overflow-hidden border border-border bg-secondary"
         style={{ width: sizePx, height: sizePx }}
         aria-hidden="true"
       >
-        <Image
-          src={avatarUrl}
+        {/*
+         * Plain <img> is used instead of next/image so that:
+         * - onError reliably fires when the file is missing / broken,
+         *   allowing an instant fallback to the placeholder icon.
+         * - Local /uploads/ paths are static files served directly by
+         *   Next.js and gain no benefit from the optimisation pipeline.
+         *
+         * eslint-disable-next-line @next/next/no-img-element
+         */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={avatarUrl!}
           alt="User avatar"
-          width={size}
-          height={size}
-          className="object-cover w-full h-full"
-          // Force a fresh fetch when the URL changes (e.g. after upload).
-          // Using the URL as a key unmounts/remounts the Image element so
-          // Next.js doesn't serve a stale cached version.
+          // key forces a remount when the URL changes so the browser
+          // always fetches the freshly uploaded file, not a cached copy.
           key={avatarUrl}
-          // Avatars are small — no lazy loading needed
-          priority={false}
-          unoptimized
+          className="object-cover w-full h-full"
+          onError={() => setImgError(true)}
         />
       </div>
     );
   }
 
-  // Placeholder icon — shown when no avatar has been set
+  // Placeholder icon — shown when no avatar is set or when the image fails to load.
   return (
     <div
       className="flex-shrink-0 rounded-full bg-secondary border border-border flex items-center justify-center"
