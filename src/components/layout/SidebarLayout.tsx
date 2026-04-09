@@ -16,8 +16,11 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
   const { collapsed, toggle } = useSidebarCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Hide sidebar entirely for /clone/* routes
-  const hideSidebar = pathname.startsWith('/clone');
+  // Hide sidebar entirely for /clone/*, /login, and /signup routes
+  const hideSidebar =
+    pathname.startsWith('/clone') ||
+    pathname === '/login' ||
+    pathname === '/signup';
 
   // Close mobile sidebar on route change
   useEffect(() => {
