@@ -1,0 +1,190 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Logo } from '@/components/ui/Logo';
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function LoginPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fieldError, setFieldError] = useState<{ email?: string; password?: string }>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ---- Helpers ----
+
+  function clearError(field: 'email' | 'password') {
+    if (fieldError[field]) setFieldError((prev) => ({ ...prev, [field]: undefined }));
+    if (serverError) setServerError(null);
+  }
+
+  // ---- Client-side validation ----
+
+  function validate(): boolean {
+    const errors: { email?: string; password?: string } = {};
+
+    if (!email.trim()) {
+      errors.email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errors.email = 'Enter a valid email address.';
+    }
+
+    if (!password) {
+      errors.password = 'Password is required.';
+    }
+
+    setFieldError(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  // ---- Submit ----
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setServerError(null);
+
+    if (!validate()) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setServerError(body.error ?? 'Something went wrong. Please try again.');
+        return;
+      }
+
+      // Success — session cookie is now set.
+      // Redirect to the page that originally triggered the auth guard,
+      // falling back to the dashboard root.
+      const returnTo = searchParams.get('returnTo');
+      const destination = returnTo && returnTo.startsWith('/') ? returnTo : '/';
+      router.push(destination);
+    } catch {
+      setServerError('Unable to reach the server. Please check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // ---- Render ----
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4 py-12">
+      {/* Logo + heading */}
+      <div className="flex flex-col items-center mb-8">
+        <Logo size={48} className="mb-4" />
+        <h1 className="text-2xl font-bold text-black tracking-tight">Welcome back</h1>
+        <p className="mt-1 text-sm text-gray-500">Log in to your Second Self account.</p>
+      </div>
+
+      {/* Form card */}
+      <div className="w-full max-w-sm">
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm px-8 py-8">
+          <form onSubmit={handleSubmit} noValidate className="space-y-5">
+            {/* Server error banner */}
+            {serverError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              >
+                {serverError}
+              </div>
+            )}
+
+            {/* Email */}
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="block text-sm font-medium text-black">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="jane@example.com"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  clearError('email');
+                }}
+                disabled={isSubmitting}
+                aria-invalid={Boolean(fieldError.email)}
+                aria-describedby={fieldError.email ? 'email-error' : undefined}
+                className={fieldError.email ? 'border-red-400 focus-visible:ring-red-400' : ''}
+              />
+              {fieldError.email && (
+                <p id="email-error" className="text-xs text-red-600" role="alert">
+                  {fieldError.email}
+                </p>
+              )}
+            </div>
+
+            {/* Password */}
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="block text-sm font-medium text-black">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Your password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  clearError('password');
+                }}
+                disabled={isSubmitting}
+                aria-invalid={Boolean(fieldError.password)}
+                aria-describedby={fieldError.password ? 'password-error' : undefined}
+                className={
+                  fieldError.password ? 'border-red-400 focus-visible:ring-red-400' : ''
+                }
+              />
+              {fieldError.password && (
+                <p id="password-error" className="text-xs text-red-600" role="alert">
+                  {fieldError.password}
+                </p>
+              )}
+            </div>
+
+            {/* Submit */}
+            <Button type="submit" disabled={isSubmitting} className="w-full gap-2">
+              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+              {isSubmitting ? 'Logging in…' : 'Log In'}
+            </Button>
+          </form>
+        </div>
+
+        {/* Sign up link */}
+        <p className="mt-6 text-center text-sm text-gray-500">
+          Don&apos;t have an account?{' '}
+          <Link
+            href="/signup"
+            className="font-medium text-black underline-offset-4 hover:underline"
+          >
+            Create one
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Menu } from 'lucide-react';
 import { Sidebar, useSidebarCollapsed } from './Sidebar';
 import { Logo } from '@/components/ui/Logo';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth-context';
 
 interface SidebarLayoutProps {
   children: React.ReactNode;
@@ -13,22 +14,49 @@ interface SidebarLayoutProps {
 
 export function SidebarLayout({ children }: SidebarLayoutProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
   const { collapsed, toggle } = useSidebarCollapsed();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Hide sidebar entirely for /clone/*, /login, and /signup routes
-  const hideSidebar =
+  // Hide sidebar entirely for /clone/*, /login, and /signup routes.
+  // These routes are public — they must never be subject to the auth guard.
+  const isPublicRoute =
     pathname.startsWith('/clone') ||
     pathname === '/login' ||
     pathname === '/signup';
+
+  // ── Client-side route guard ────────────────────────────────────────────────
+  // After AuthProvider resolves the session (isLoading = false) and the user
+  // is still null, redirect to /login with a `returnTo` parameter so the user
+  // is bounced back to the intended page after signing in.
+  //
+  // This guard complements the server-side middleware: it handles the case
+  // where the session cookie expires while the app is already mounted in the
+  // browser (e.g. the user keeps a tab open overnight).
+  useEffect(() => {
+    if (isLoading || isPublicRoute) return;
+
+    if (user === null) {
+      const destination = `/login?returnTo=${encodeURIComponent(pathname)}`;
+      router.replace(destination);
+    }
+  }, [user, isLoading, isPublicRoute, pathname, router]);
 
   // Close mobile sidebar on route change
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  if (hideSidebar) {
+  // Public routes (clone, login, signup) bypass the layout and guard entirely.
+  if (isPublicRoute) {
     return <>{children}</>;
+  }
+
+  // While the session is being restored, or if auth is pending a redirect,
+  // render nothing to avoid a flash of the private page content.
+  if (isLoading || user === null) {
+    return null;
   }
 
   return (
