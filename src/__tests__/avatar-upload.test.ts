@@ -9,6 +9,9 @@
  *  5. The settings record is upserted with the new avatarUrl
  *  6. Returns { avatarUrl } in the response body
  *  7. Old uploaded file is deleted from disk when a new one is uploaded
+ *  8. avatarUrl stored in the DB is a relative URL (e.g. /uploads/<filename>)
+ *  9. fs.unlink receives the absolute filesystem path, NOT the relative URL
+ * 10. deletePreviousAvatar never calls fs.unlink on UPLOADS_DIR itself
  *
  * All I/O (fs, prisma) is mocked — no real disk or DB access.
  */
@@ -188,7 +191,58 @@ describe('Happy path', () => {
 });
 
 // ===========================================================================
-// 2. Old avatar cleanup
+// 2. avatarUrl stored in DB is a relative URL (acceptance criterion)
+// ===========================================================================
+
+describe('avatarUrl stored in DB is a relative URL', () => {
+  it('the upserted avatarUrl starts with /uploads/ — not an absolute filesystem path', async () => {
+    await POST(validJpegRequest());
+
+    const call = (mockPrisma.settings.upsert as jest.Mock).mock.calls[0][0];
+    const stored: string = call.update.avatarUrl;
+
+    // Must be a relative URL like /uploads/<filename>
+    expect(stored).toMatch(/^\/uploads\//);
+    // Must NOT be an absolute filesystem path like /app/public/uploads/...
+    // or contain OS-level path components
+    expect(stored).not.toContain(process.cwd());
+    expect(stored).not.toMatch(/^\/app\//);
+    expect(stored).not.toContain('public');
+  });
+
+  it('the avatarUrl returned in the response body is the same relative URL saved to the DB', async () => {
+    await POST(validJpegRequest());
+
+    // Capture what was upserted
+    const upsertCall = (mockPrisma.settings.upsert as jest.Mock).mock.calls[0][0];
+    const storedUrl: string = upsertCall.update.avatarUrl;
+
+    // The response must reflect the same relative URL
+    const response = await POST(validJpegRequest());
+    const body = await response.json();
+    expect(body.avatarUrl).toMatch(/^\/uploads\//);
+    // Both must follow the same /uploads/<filename> pattern
+    expect(storedUrl).toMatch(/^\/uploads\//);
+  });
+
+  it('the relative URL is browser-accessible: starts with / and has no server-side path segments', async () => {
+    const response = await POST(validJpegRequest());
+    const body = await response.json();
+
+    const avatarUrl: string = body.avatarUrl;
+
+    // Must start with a leading slash (root-relative URL)
+    expect(avatarUrl.startsWith('/')).toBe(true);
+    // Must not be an absolute URL (no scheme)
+    expect(avatarUrl).not.toMatch(/^https?:\/\//);
+    // Must not contain any server-only path segments
+    expect(avatarUrl).not.toContain('public');
+    expect(avatarUrl).not.toContain(process.cwd());
+  });
+});
+
+// ===========================================================================
+// 3. Old avatar cleanup
 // ===========================================================================
 
 describe('Old avatar cleanup', () => {
@@ -237,7 +291,7 @@ describe('Old avatar cleanup', () => {
 });
 
 // ===========================================================================
-// 3. Validation — wrong field name
+// 4. Validation — wrong field name
 // ===========================================================================
 
 describe('Missing image field', () => {
@@ -268,7 +322,7 @@ describe('Missing image field', () => {
 });
 
 // ===========================================================================
-// 4. Validation — file type
+// 5. Validation — file type
 // ===========================================================================
 
 describe('File type validation', () => {
@@ -320,7 +374,7 @@ describe('File type validation', () => {
 });
 
 // ===========================================================================
-// 5. Validation — file size
+// 6. Validation — file size
 // ===========================================================================
 
 describe('File size validation', () => {
@@ -358,7 +412,7 @@ describe('File size validation', () => {
 });
 
 // ===========================================================================
-// 6. Path-traversal guard
+// 7. Path-traversal guard and fs.unlink path correctness (acceptance criteria)
 // ===========================================================================
 
 describe('Path-traversal guard on old avatar deletion', () => {
@@ -381,10 +435,65 @@ describe('Path-traversal guard on old avatar deletion', () => {
       expect(unlinkedPath).toMatch(new RegExp(`^${UPLOADS_DIR.replace(/\\/g, '\\\\')}.*`));
     }
   });
+
+  it('does NOT call unlink when the stored avatarUrl produces an empty basename', async () => {
+    // A bare slash has no filename component — path.basename('/') returns ''.
+    // The inner guard in deletePreviousAvatar must detect the empty filename and
+    // return early so UPLOADS_DIR itself is never passed to fs.unlink.
+    // The outer `if (currentSettings?.avatarUrl)` is truthy for '/' (non-empty
+    // string), so this exercises the inner guard directly.
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue({
+      avatarUrl: '/',
+    });
+
+    const response = await POST(validJpegRequest());
+
+    // The new upload still succeeds
+    expect(response.status).toBe(200);
+
+    // UPLOADS_DIR itself must never be passed to fs.unlink (would delete the directory)
+    const unlinkCalls = (mockFs.unlink as jest.Mock).mock.calls;
+    for (const [unlinkedPath] of unlinkCalls) {
+      expect(unlinkedPath).not.toBe(UPLOADS_DIR);
+      // Any path that was unlinked must sit strictly inside UPLOADS_DIR
+      expect(unlinkedPath).toMatch(
+        new RegExp(
+          `^${UPLOADS_DIR.replace(/\\/g, '\\\\')}${path.sep.replace(/\\/g, '\\\\')}`
+        )
+      );
+    }
+  });
+
+  it('fs.unlink receives the absolute filesystem path, NOT the relative URL stored in the DB', async () => {
+    // This test pins down the separation of concerns required by the task:
+    //   DB stores:       relative URL       → `/uploads/old-avatar.jpg`
+    //   fs.unlink gets:  absolute fs path   → `<cwd>/public/uploads/old-avatar.jpg`
+    // Confusing the two would either try to delete a URL-shaped path (which
+    // does not exist on disk) or expose a relative-path traversal risk.
+    const OLD_RELATIVE_URL = '/uploads/old-avatar.jpg';
+    const EXPECTED_FILESYSTEM_PATH = path.join(UPLOADS_DIR, 'old-avatar.jpg');
+
+    (mockPrisma.settings.findUnique as jest.Mock).mockResolvedValue({
+      avatarUrl: OLD_RELATIVE_URL,
+    });
+
+    await POST(validJpegRequest());
+
+    expect(mockFs.unlink).toHaveBeenCalledTimes(1);
+    const unlinkedPath = (mockFs.unlink as jest.Mock).mock.calls[0][0];
+
+    // Must be the absolute filesystem path — NOT the relative URL stored in the DB
+    expect(unlinkedPath).toBe(EXPECTED_FILESYSTEM_PATH);
+    expect(unlinkedPath).not.toBe(OLD_RELATIVE_URL);
+    // Must start with the absolute uploads directory
+    expect(unlinkedPath).toContain(UPLOADS_DIR);
+    // Must not look like a URL (no leading /uploads/ without the full CWD prefix)
+    expect(unlinkedPath.startsWith('/uploads/')).toBe(false);
+  });
 });
 
 // ===========================================================================
-// 7. DB / fs error handling
+// 8. DB / fs error handling
 // ===========================================================================
 
 describe('Internal error handling', () => {

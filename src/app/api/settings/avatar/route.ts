@@ -38,16 +38,32 @@ function generateFilename(ext: string): string {
 /**
  * Deletes a previously stored avatar from disk.
  * The `avatarUrl` stored in the DB is a relative public path such as
- * `/uploads/1717000000000-a3f9c2.png`; we strip the leading `/uploads/`
- * to resolve the absolute path.
+ * `/uploads/1717000000000-a3f9c2.png`; `path.basename` extracts the filename
+ * component, which is then joined with `UPLOADS_DIR` to form the absolute
+ * filesystem path for `fs.unlink`.
+ *
+ * Security: `path.basename` neutralises path-traversal sequences (e.g.
+ * `/../../../etc/passwd` becomes `passwd`).  The subsequent guard ensures the
+ * resolved path sits strictly *inside* `UPLOADS_DIR` — never equal to the
+ * directory itself (which would happen if `basename` returned an empty string).
+ *
  * Errors are swallowed — a missing file must not block a new upload.
  */
 async function deletePreviousAvatar(avatarUrl: string): Promise<void> {
   try {
     const filename = path.basename(avatarUrl);
-    // Guard against path-traversal: only delete files directly inside UPLOADS_DIR
+    // An empty filename means avatarUrl had no meaningful file component
+    // (e.g. it was an empty string).  Nothing to delete.
+    if (!filename) {
+      return;
+    }
+    // Resolve the absolute filesystem path inside the uploads directory.
+    // This must NOT be used to call fs.unlink directly on UPLOADS_DIR itself.
     const filePath = path.join(UPLOADS_DIR, filename);
-    if (!filePath.startsWith(UPLOADS_DIR + path.sep) && filePath !== UPLOADS_DIR) {
+    // Guard: only proceed if the resolved path sits strictly inside UPLOADS_DIR.
+    // `startsWith(UPLOADS_DIR + sep)` rejects both the directory itself and any
+    // path that escapes it (defense-in-depth after basename neutralisation).
+    if (!filePath.startsWith(UPLOADS_DIR + path.sep)) {
       return;
     }
     await fs.unlink(filePath);
