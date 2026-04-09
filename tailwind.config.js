@@ -29,7 +29,7 @@ module.exports = {
       //  background     #ffffff (white)    Page / root background
       //  surface        #f9fafb (gray-50)  Cards, sidebar, raised surfaces
       //  foreground     #000000 (black)    Primary text
-      //  primary        #000000 (black)    Buttons, active states, links
+      //  primary        #0ea5e9 (sky-500)  Buttons, active states, links
       //  primary-fg     #ffffff (white)    Text on primary backgrounds
       //  secondary      #f3f4f6 (gray-100) Subtle fills (message bubbles, pills)
       //  secondary-fg   #111827 (gray-900) Text on secondary backgrounds

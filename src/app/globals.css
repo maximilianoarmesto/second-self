@@ -14,7 +14,7 @@
  *  --background        0 0% 100%              white
  *  --surface           210 20% 98%            gray-50  (raised surfaces)
  *  --foreground        0 0% 0%                black    (primary text)
- *  --primary           0 0% 0%                black    (buttons, active UI)
+ *  --primary           199 89% 48%            sky-500  (buttons, active UI)
  *  --primary-foreground 0 0% 100%             white    (text on primary)
  *  --secondary         220 14% 96%            gray-100 (subtle fills)
  *  --secondary-foreground 220 9% 11%          gray-900 (text on secondary)
@@ -51,8 +51,8 @@
     --popover:              0 0% 100%;
     --popover-foreground:   0 0% 0%;
 
-    /* Primary — solid black */
-    --primary:              0 0% 0%;
+    /* Primary — sky blue (sky-500 / #0ea5e9) */
+    --primary:              199 89% 48%;
     --primary-foreground:   0 0% 100%;
 
     /* Secondary — light gray fill */
