@@ -3,11 +3,26 @@ import { NextResponse } from 'next/server';
 /**
  * POST /api/auth/logout
  *
- * Terminates the current session. In this single-owner application there is
- * no server-side session store, so the response simply instructs the client
- * to redirect to `/login`. Any future session-cookie / JWT invalidation
- * logic should be added here.
+ * Clears the `session` HttpOnly cookie by overwriting it with an empty value
+ * and `Max-Age=0`, which instructs the browser to delete it immediately.
+ *
+ * No authentication is required to call this endpoint — the user must always
+ * be able to log out, even if their token has already expired.
  */
 export async function POST() {
-  return NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true });
+
+  // Expire the session cookie immediately.
+  // Attributes mirror those that would be set on login:
+  //   HttpOnly  — not accessible to JavaScript
+  //   Path=/    — matches every route so the browser sends it on all requests
+  //   SameSite=Lax — standard CSRF protection
+  //   Secure    — only sent over HTTPS (omitted in development automatically
+  //               because Next.js dev server runs on HTTP)
+  response.headers.set(
+    'Set-Cookie',
+    'session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+  );
+
+  return response;
 }
