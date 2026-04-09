@@ -32,6 +32,9 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-secondself_user}:${POSTGRES_PASSWORD:-secondself_pass}@postgres:5432/${POSTGRES_DB:-secondself_db}
       PRISMA_DATABASE_URL: postgresql://${POSTGRES_USER:-secondself_user}:${POSTGRES_PASSWORD:-secondself_pass}@postgres:5432/${POSTGRES_DB:-secondself_db}
+      JWT_SECRET: ${JWT_SECRET:-}
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL:-admin@example.com}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-changeme123}
     depends_on:
       postgres:
         condition: service_healthy
