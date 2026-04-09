@@ -19,8 +19,13 @@ export async function extractTextFromPdf(
 /**
  * Split text into overlapping chunks with approximate page tracking.
  * Assumes ~3000 characters per page for page number estimation.
+ *
+ * Returns an array of chunk objects `{ content, pageNumber }`.
+ * For callers that only need the text strings, see `chunkText()` below.
+ *
+ * @internal — prefer `chunkText()` for external callers.
  */
-export function chunkText(
+export function chunkTextWithMeta(
   text: string,
   chunkSize = 1000,
   overlap = 200
@@ -29,7 +34,6 @@ export function chunkText(
   const charsPerPage = 3000;
 
   let start = 0;
-  let chunkIndex = 0;
 
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
@@ -40,7 +44,6 @@ export function chunkText(
     const pageNumber = Math.floor(midpoint / charsPerPage) + 1;
 
     chunks.push({ content, pageNumber });
-    chunkIndex++;
 
     // Move start forward by (chunkSize - overlap), ensuring progress
     const step = chunkSize - overlap;
@@ -48,6 +51,17 @@ export function chunkText(
   }
 
   return chunks;
+}
+
+/**
+ * Split text into overlapping string chunks.
+ *
+ * This is the primary public API for text chunking.  It returns plain strings
+ * so callers (tests, RAG service, etc.) do not need to destructure objects.
+ * Page-number metadata is available via `chunkTextWithMeta()` when needed.
+ */
+export function chunkText(text: string, chunkSize = 1000, overlap = 200): string[] {
+  return chunkTextWithMeta(text, chunkSize, overlap).map((c) => c.content);
 }
 
 /**
@@ -141,8 +155,8 @@ export async function ingestDocument(
     // Extract text from PDF
     const { text, pages } = await extractTextFromPdf(buffer);
 
-    // Split into chunks
-    const chunks = chunkText(text);
+    // Split into chunks (with page-number metadata for DB insertion)
+    const chunks = chunkTextWithMeta(text);
 
     if (chunks.length === 0) {
       throw new Error('No text content could be extracted from the document.');

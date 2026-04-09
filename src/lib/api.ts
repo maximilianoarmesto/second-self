@@ -18,17 +18,18 @@ export async function apiFetch<T = any>(
   options: RequestInit = {}
 ): Promise<T> {
   const apiKey = getStoredApiKey();
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string> || {}),
-  };
+
+  // Use a Headers instance so callers (and tests) can use .get() / .has()
+  const headers = new Headers(options.headers as HeadersInit | undefined);
 
   if (apiKey) {
-    headers['x-openai-api-key'] = apiKey;
+    headers.set('x-openai-api-key', apiKey);
   }
 
-  // Don't set Content-Type for FormData (browser sets boundary automatically)
+  // Don't set Content-Type for FormData — the browser sets it automatically
+  // with the correct multipart boundary.
   if (!(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
+    headers.set('Content-Type', 'application/json');
   }
 
   const response = await fetch(path, {
@@ -38,7 +39,7 @@ export async function apiFetch<T = any>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${response.statusText}`);
+    throw new Error(body.error || `Request failed (${response.status})`);
   }
 
   // Handle 204 No Content

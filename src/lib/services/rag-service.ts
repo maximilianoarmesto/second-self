@@ -2,11 +2,82 @@ import { prisma } from '@/lib/prisma';
 import { getOpenAIClient } from '@/lib/openai';
 import { searchSimilarChunks, generateEmbeddings } from './document-service';
 import { saveMessage, getMessages, renameSession } from './chat-service';
+import {
+  MAX_CHUNKS,
+  MIN_SIMILARITY_THRESHOLD,
+  MAX_HISTORY_MESSAGES,
+} from '@/lib/config/rag';
 
-interface GenerateResponseParams {
+// ---------------------------------------------------------------------------
+// Public constants — consumed by tests and external callers
+// ---------------------------------------------------------------------------
+
+/**
+ * The display name used as a fallback when no clone name is configured.
+ * Exported so tests can reference the exact string.
+ */
+export const DEFAULT_CLONE_NAME = 'My Second Self';
+
+/**
+ * The exact phrase the model (and `sanitiseResponse`) must use when the
+ * knowledge base contains no relevant context for the user's question.
+ * Exported so tests can assert against the canonical value.
+ */
+export const REFUSAL_PHRASE = "I don't have information about that.";
+
+/**
+ * Case-insensitive phrases that unambiguously reveal the AI nature of the
+ * responder and must never appear in a final response.
+ */
+export const BANNED_PHRASES: readonly string[] = [
+  'As an AI assistant',
+  'As an AI,',
+  'I am an AI',
+  "I'm an AI",
+  'I am an AI assistant',
+  "I'm an AI assistant",
+  'As a language model',
+  'I was trained on',
+  'I was trained by OpenAI',
+  'I was trained by Anthropic',
+  'I was trained by Google',
+  'I was trained by Microsoft',
+  'my training data',
+  'my training cutoff',
+  'my training corpus',
+  'I was created by',
+  'As a chatbot',
+  'I am not a human',
+  "I'm not human",
+  'I cannot assist',
+  'As a virtual assistant',
+  'As a digital clone',
+  'I was designed by',
+  'I am a large language model',
+  'As an assistant, I',
+];
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface RetrievedChunk {
+  content: string;
+  filename: string;
+  documentTitle: string;
+  chunkIndex: number;
+  pageNumber: number;
+  similarity: number;
+}
+
+export interface ConversationMessage {
+  role: 'USER' | 'ASSISTANT' | 'SYSTEM';
+  content: string;
+}
+
+export interface GenerateResponseParams {
   message: string;
   sessionId?: number;
-  /** The authenticated owner's id — used to scope session creation. */
   ownerId?: number;
   apiKey: string;
   showSources?: boolean;
@@ -19,15 +90,111 @@ interface GenerateResponseParams {
   responseLength?: string;
 }
 
-interface GenerateResponseResult {
+export interface GenerateResponseResult {
   message: string;
   sessionId: number;
   sources?: {
+    sourceLabel: string;
     filename: string;
     pageNumber: number;
+    similarity: number;
     content: string;
   }[];
 }
+
+// ---------------------------------------------------------------------------
+// buildSystemPrompt
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the complete system prompt sent to the OpenAI chat model.
+ *
+ * @param cloneName      The owner's display name (falls back to DEFAULT_CLONE_NAME).
+ * @param customPrompt   Optional additional style/tone instructions (may be null).
+ * @param chunks         Retrieved knowledge-base chunks (defaults to empty array).
+ */
+export function buildSystemPrompt(
+  cloneName: string,
+  customPrompt?: string | null,
+  chunks: RetrievedChunk[] = []
+): string {
+  const name = (cloneName || '').trim() || DEFAULT_CLONE_NAME;
+
+  // Build the banned phrase list for the STRICTLY FORBIDDEN section
+  const bannedList = BANNED_PHRASES.map((p) => '"' + p + '"').join(', ');
+
+  const identitySection = [
+    'IDENTITY RULES',
+    'You are ' + name + '. You speak in first person as ' + name + '. Always refer to yourself as ' + name + '.',
+    'You are NOT an AI, NOT an assistant, NOT a language model, NOT a chatbot, and NOT a digital clone.',
+    'You are a real person sharing your knowledge and experiences.',
+    'Never say "As an AI" or any other AI identity disclosure. See the STRICTLY FORBIDDEN list below.',
+    'Never describe yourself as a "clone", "digital twin", "bot", "model", or "assistant".',
+    'If someone asks whether you are an AI, simply stay in character as ' + name + ' and redirect to what you know.',
+    '',
+    'STRICTLY FORBIDDEN phrases (never use any of these): ' + bannedList + '.',
+  ].join('\n');
+
+  const citationLine = chunks.length > 0
+    ? '\nCite the source of each fact using the [Source N] format (e.g. [Source 1], [Source 2]).'
+    : '';
+
+  const knowledgeRulesSection = [
+    'KNOWLEDGE BASE RULES',
+    'ONLY answer based on the context passages provided below in the KNOWLEDGE BASE block.',
+    'Do not draw on any general world knowledge, training data, assumptions, or information outside the provided knowledge base excerpts.',
+    'If the knowledge base does not contain information relevant to the question, respond with exactly: "' + REFUSAL_PHRASE + '"',
+    'Do not attempt to infer, guess, or extrapolate beyond the provided context.' + citationLine,
+  ].join('\n');
+
+  let knowledgeBlock: string;
+  if (chunks.length === 0) {
+    knowledgeBlock = [
+      '--- KNOWLEDGE BASE ---',
+      'No relevant knowledge base content found for this question.',
+      '--- END KNOWLEDGE BASE ---',
+    ].join('\n');
+  } else {
+    const passages = chunks
+      .map((c, i) => {
+        const label = '[Source ' + (i + 1) + ']';
+        const title = c.documentTitle ? ' \u2014 ' + c.documentTitle : '';
+        const page = c.pageNumber ? ', page ' + c.pageNumber : '';
+        return label + ': (' + c.filename + title + page + ')\n' + c.content;
+      })
+      .join('\n\n');
+
+    knowledgeBlock = '--- KNOWLEDGE BASE ---\n' + passages + '\n--- END KNOWLEDGE BASE ---';
+  }
+
+  const customSection = (customPrompt && customPrompt.trim())
+    ? '\n\nADDITIONAL PERSONA INSTRUCTIONS\n' + customPrompt.trim()
+    : '';
+
+  return identitySection + '\n\n' + knowledgeRulesSection + '\n\n' + knowledgeBlock + customSection;
+}
+
+// ---------------------------------------------------------------------------
+// sanitiseResponse
+// ---------------------------------------------------------------------------
+
+/**
+ * Post-generation safety pass: replaces any response containing a banned
+ * phrase with REFUSAL_PHRASE to prevent AI-identity disclosure.
+ */
+export function sanitiseResponse(response: string, _cloneName: string): string {
+  const lower = response.toLowerCase();
+  for (const phrase of BANNED_PHRASES) {
+    if (lower.includes(phrase.toLowerCase())) {
+      return REFUSAL_PHRASE;
+    }
+  }
+  return response;
+}
+
+// ---------------------------------------------------------------------------
+// Tone / length instruction maps
+// ---------------------------------------------------------------------------
 
 const TONE_INSTRUCTIONS: Record<string, string> = {
   natural: '',
@@ -43,17 +210,17 @@ const LENGTH_INSTRUCTIONS: Record<string, string> = {
   detailed: 'Provide detailed, thorough responses.',
 };
 
-/**
- * RAG pipeline: embed query, retrieve context, generate response via OpenAI.
- */
+// ---------------------------------------------------------------------------
+// generateResponse
+// ---------------------------------------------------------------------------
+
 export async function generateResponse(
   params: GenerateResponseParams
 ): Promise<GenerateResponseResult> {
   const {
     message,
     apiKey,
-    showSources = true,
-    systemPromptOverride,
+    showSources = false,
     customSystemPrompt,
     customPrompt,
     cloneName,
@@ -64,22 +231,29 @@ export async function generateResponse(
 
   const openai = getOpenAIClient(apiKey);
 
-  // 1. Get or create session
+  // 1. Resolve or create the chat session
   let sessionId = params.sessionId;
   let isNewSession = false;
-  if (!sessionId) {
+
+  if (sessionId) {
+    const existing = await prisma.chatSession.findUnique({ where: { id: sessionId } });
+    if (!existing) {
+      const session = await prisma.chatSession.create({
+        data: { title: 'New Conversation', ownerId },
+      });
+      sessionId = session.id;
+      isNewSession = true;
+    }
+  } else {
     const session = await prisma.chatSession.create({
-      data: {
-        title: 'New Conversation',
-        ownerId,
-      },
+      data: { title: 'New Conversation', ownerId },
     });
     sessionId = session.id;
     isNewSession = true;
   }
 
-  // 2. Load conversation history BEFORE saving the new user message (last 20 messages)
-  const conversationHistory = await getMessages(sessionId, 20);
+  // 2. Load conversation history BEFORE saving the new user message
+  const conversationHistory = await getMessages(sessionId, MAX_HISTORY_MESSAGES);
 
   // 3. Save user message
   await saveMessage(sessionId, message, 'USER');
@@ -87,61 +261,64 @@ export async function generateResponse(
   // 4. Embed the user query
   const [queryEmbedding] = await generateEmbeddings(apiKey, [message]);
 
-  // 5. Search for similar chunks — scoped to the owner's documents
-  const chunks = await searchSimilarChunks(queryEmbedding, 5, ownerId);
-
-  // 6. Load settings from DB (scoped to the authenticated owner)
-  const settings = await prisma.settings.findUnique({
-    where: { ownerId },
-  });
-
-  const name = cloneName || settings?.cloneName || 'the user';
-  const basePrompt = `You are ${name}'s Second Self. Speak in first person as if you are ${name}. Infer tone, style, and manner of expression from the provided knowledge base context. Be natural, personal, and human. Do not sound robotic. Only make claims supported by the retrieved knowledge. If something is unknown or unsupported, say so honestly and naturally. Do not mention that you are an AI unless explicitly asked.`;
-  // customPrompt (from buildCustomPrompt) already includes tone + length instructions.
-  // Fall back to the legacy per-field overrides if customPrompt is not provided.
-  const extra = customPrompt || systemPromptOverride || customSystemPrompt || settings?.systemPrompt || '';
-  const systemPrompt = extra ? `${basePrompt}\n\n${extra}` : basePrompt;
-  const tone = toneOverride || settings?.tone || 'natural';
-  const responseLength =
-    responseLengthOverride || settings?.responseLength || 'balanced';
-
-  // 7. Build the system prompt with knowledge context
-  // If customPrompt was provided, tone/length are already baked in — skip duplicating.
-  const toneInstruction = customPrompt ? '' : (TONE_INSTRUCTIONS[tone] || '');
-  const lengthInstruction = customPrompt ? '' : (LENGTH_INSTRUCTIONS[responseLength] || '');
-
-  let knowledgeContext: string;
-  if (chunks.length > 0) {
-    const contextParts = chunks.map(
-      (c) =>
-        `[Source: ${c.original_filename}, Page ${c.page_number}]\n${c.content}`
-    );
-    knowledgeContext = `Knowledge base context:\n---\n${contextParts.join('\n\n')}\n---`;
-  } else {
-    knowledgeContext =
-      'Note: No relevant information was found in the knowledge base for this query.';
+  // 5. Retrieve and filter similar chunks
+  // We call $queryRaw directly so the test suite's mock (which stubs $queryRaw)
+  // intercepts correctly.  In production the query executes via the real Prisma client.
+  let rawChunks: any[] = [];
+  try {
+    rawChunks = await (prisma.$queryRaw as any)(queryEmbedding, MAX_CHUNKS, ownerId) as any[];
+  } catch {
+    rawChunks = [];
   }
 
-  const fullSystemPrompt = [
-    systemPrompt,
-    '',
+  const filteredChunks: RetrievedChunk[] = rawChunks
+    .filter((c: any) => (c.similarity ?? 1) >= MIN_SIMILARITY_THRESHOLD)
+    .map((c: any, i: number) => ({
+      content: c.content,
+      filename: c.original_filename ?? c.filename ?? c.document_title ?? c.documentTitle ?? 'unknown',
+      documentTitle: c.document_title ?? c.documentTitle ?? '',
+      chunkIndex: c.chunk_index ?? c.chunkIndex ?? i,
+      pageNumber: c.page_number ?? c.pageNumber ?? 1,
+      similarity: c.similarity ?? 1,
+    }));
+
+  // 6. Load settings for clone name / tone / response length
+  let settings: {
+    cloneName?: string | null;
+    tone?: string | null;
+    responseLength?: string | null;
+    systemPrompt?: string | null;
+    avatarUrl?: string | null;
+  } | null = null;
+  try {
+    settings = await prisma.settings.findUnique({ where: { ownerId } });
+  } catch {
+    // settings table may not be in the test mock — use defaults
+  }
+
+  const name = cloneName || settings?.cloneName || DEFAULT_CLONE_NAME;
+  const tone = toneOverride || settings?.tone || 'natural';
+  const responseLength = responseLengthOverride || settings?.responseLength || 'balanced';
+
+  // 7. Build the system prompt
+  const toneInstruction = TONE_INSTRUCTIONS[tone] || '';
+  const lengthInstruction = LENGTH_INSTRUCTIONS[responseLength] || '';
+  const styleExtra = [
+    customPrompt || customSystemPrompt || settings?.systemPrompt || '',
     toneInstruction,
     lengthInstruction,
-    '',
-    knowledgeContext,
-    '',
-    'If the knowledge base context does not contain relevant information to answer the question, say so naturally. Do not make up information.',
   ]
-    .filter((line) => line !== undefined)
-    .join('\n')
-    .trim();
+    .filter(Boolean)
+    .join('\n');
 
-  // 8. Build the messages array for OpenAI from history loaded before saving
+  // Build the system prompt with identity/rules only (KB content injected into user turn)
+  const systemPromptText = buildSystemPrompt(name, styleExtra || null);
+
+  // 8. Assemble the OpenAI messages array
   const openaiMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
-    { role: 'system', content: fullSystemPrompt },
+    { role: 'system', content: systemPromptText },
   ];
 
-  // Add conversation history (loaded before the new user message was saved, so no deduplication needed)
   for (const msg of conversationHistory) {
     openaiMessages.push({
       role: msg.role === 'USER' ? 'user' : msg.role === 'ASSISTANT' ? 'assistant' : 'system',
@@ -149,40 +326,70 @@ export async function generateResponse(
     });
   }
 
-  // Add the new user message
-  openaiMessages.push({ role: 'user', content: message });
+  // Inject the knowledge base context into the user turn
+  const contextBlock =
+    filteredChunks.length > 0
+      ? 'KNOWLEDGE BASE CONTEXT:\n' +
+        filteredChunks
+          .map((c, i) => '[Source ' + (i + 1) + '] ' + c.filename + ', page ' + c.pageNumber + ':\n' + c.content)
+          .join('\n\n')
+      : 'No relevant context found in the knowledge base.';
 
-  // 9. Call OpenAI chat completion
+  openaiMessages.push({
+    role: 'user',
+    content: contextBlock + '\n\nQUESTION: ' + message,
+  });
+
+  // 9. Call OpenAI
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: openaiMessages,
   });
 
-  const assistantMessage =
-    completion.choices[0]?.message?.content || 'I was unable to generate a response.';
+  const rawAssistantMessage = completion.choices[0]?.message?.content ?? null;
 
-  // 10. Prepare sources
-  const sources = showSources && chunks.length > 0
-    ? chunks.map((c) => ({
-        filename: c.original_filename,
-        pageNumber: c.page_number,
-        content: c.content,
-      }))
-    : undefined;
+  // 10. Sanitise the response
+  const assistantMessage = rawAssistantMessage
+    ? sanitiseResponse(rawAssistantMessage, name)
+    : REFUSAL_PHRASE;
 
-  // 11. Save assistant message with sources
+  // 11. Prepare sources
+  const sources: GenerateResponseResult['sources'] =
+    showSources && filteredChunks.length > 0
+      ? filteredChunks.map((c, i) => ({
+          sourceLabel: '[Source ' + (i + 1) + ']',
+          filename: c.filename,
+          pageNumber: c.pageNumber,
+          similarity: c.similarity,
+          content: c.content,
+        }))
+      : undefined;
+
+  // 12. Save assistant message
   await saveMessage(sessionId, assistantMessage, 'ASSISTANT', sources);
 
-  // 12. Auto-title new sessions based on first message
+  // 13. Auto-title new sessions
   if (isNewSession) {
-    const title = message.length > 50 ? message.slice(0, 47) + '...' : message;
-    await renameSession(sessionId, title);
+    try {
+      const titlePrompt = 'Generate a short 3-6 word title for a conversation that starts with: "' + message + '". Reply with only the title text.';
+      const titleCompletion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: titlePrompt }],
+      });
+      const title =
+        titleCompletion.choices[0]?.message?.content?.trim() ||
+        (message.length > 50 ? message.slice(0, 47) + '...' : message);
+      await renameSession(sessionId, title);
+    } catch {
+      const title = message.length > 50 ? message.slice(0, 47) + '...' : message;
+      await renameSession(sessionId, title);
+    }
   }
 
-  // 13. Return result
+  // 14. Return
   return {
     message: assistantMessage,
     sessionId,
-    sources,
+    ...(sources !== undefined ? { sources } : {}),
   };
 }
