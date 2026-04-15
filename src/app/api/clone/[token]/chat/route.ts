@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateResponse } from '@/lib/services/rag-service';
 import { buildCustomPrompt } from '@/lib/settings-prompt';
+import type { AiProvider } from '@/lib/ai-provider';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from '@/lib/ai-provider';
 import crypto from 'crypto';
 
 export async function POST(
@@ -39,18 +41,45 @@ export async function POST(
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // Get API key: prefer stored key from settings, fall back to header
-    let apiKey = link.owner.settings?.openaiApiKeyEncrypted || null;
-    if (!apiKey) {
-      apiKey = request.headers.get('x-openai-api-key');
-    }
+    const ownerSettings = link.owner.settings;
 
-    if (!apiKey) {
+    // Resolve the active AI provider from owner's settings (defaults to openai).
+    const aiProvider: AiProvider = (ownerSettings?.aiProvider as AiProvider) ?? 'openai';
+
+    // RAG embedding always uses OpenAI — the OpenAI key is required regardless
+    // of which provider is active for chat completions.
+    const openaiApiKey = ownerSettings?.openaiApiKeyEncrypted ?? null;
+    if (!openaiApiKey) {
       return NextResponse.json(
-        { error: 'No OpenAI API key configured for this clone' },
+        {
+          error:
+            'No OpenAI API key configured for this clone. The owner must add one in Settings.',
+        },
         { status: 400 }
       );
     }
+
+    // Resolve the chat-completion API key for the active provider.
+    const chatApiKey =
+      aiProvider === 'anthropic'
+        ? (ownerSettings?.anthropicApiKey ?? null)
+        : openaiApiKey;
+
+    if (!chatApiKey) {
+      const providerLabel = aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI';
+      return NextResponse.json(
+        {
+          error: `${providerLabel} API key is not configured for this clone. The owner must add it in Settings.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Resolve the model for the active provider, falling back to sensible defaults.
+    const chatModel =
+      aiProvider === 'anthropic'
+        ? (ownerSettings?.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL)
+        : (ownerSettings?.openaiModel ?? DEFAULT_OPENAI_MODEL);
 
     // Resolve the clone name and custom prompt from the owner's Settings so
     // the public chat route produces an identical strict first-person persona
@@ -60,19 +89,10 @@ export async function POST(
     //   1. settings.cloneName  — most up-to-date; set on the Settings row
     //   2. owner.cloneName     — legacy fallback on the Owner record itself
     //   3. undefined           — lets buildSystemPrompt() use DEFAULT_CLONE_NAME
-    //
-    // Using nullish coalescing (??) rather than logical OR (||) ensures that
-    // an intentionally empty cloneName from Settings is not silently discarded
-    // in favour of a potentially stale Owner-record value.
-    const ownerSettings = link.owner.settings;
     const cloneName = ownerSettings?.cloneName ?? link.owner.cloneName ?? undefined;
 
     // Build the composite custom prompt that incorporates systemPrompt, tone,
-    // and responseLength from the owner's Settings.  buildSystemPrompt() in
-    // rag-service appends it after the strict first-person base rules, so
-    // persona constraints are always enforced.
-    // Pass null (not undefined) when no custom prompt exists so generateResponse()
-    // knows to skip its own Settings fetch — this route already has the data.
+    // and responseLength from the owner's Settings.
     const customPrompt = buildCustomPrompt(
       ownerSettings?.systemPrompt ?? null,
       ownerSettings?.tone ?? null,
@@ -82,7 +102,12 @@ export async function POST(
     const result = await generateResponse({
       message: message.trim(),
       sessionId: sessionId || undefined,
-      apiKey,
+      // OpenAI key for RAG embeddings (always OpenAI)
+      apiKey: openaiApiKey,
+      // Provider-specific key and model for chat completions
+      chatApiKey,
+      chatProvider: aiProvider,
+      chatModel,
       showSources: false,
       cloneName,
       customPrompt,

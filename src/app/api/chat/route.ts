@@ -4,6 +4,8 @@ import { generateResponse } from '@/lib/services/rag-service';
 import { buildCustomPrompt } from '@/lib/settings-prompt';
 import { requireAuth } from '@/lib/middleware/requireAuth';
 import type { AuthContext } from '@/lib/middleware/requireAuth';
+import type { AiProvider } from '@/lib/ai-provider';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL } from '@/lib/ai-provider';
 // Retrieval constants are defined in src/lib/config/rag.ts for easy tuning.
 // Importing them here makes the active configuration visible in route-level
 // request logs so operators can confirm the live values without needing to
@@ -13,14 +15,6 @@ import { MAX_CHUNKS, MIN_SIMILARITY_THRESHOLD } from '@/lib/config/rag';
 export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) => {
   try {
     const { userId } = ctx.auth;
-
-    const apiKey = request.headers.get('x-openai-api-key');
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'OpenAI API key is required. Please configure it in Settings.' },
-        { status: 400 }
-      );
-    }
 
     const body = await request.json();
     const { message, sessionId, showSources } = body;
@@ -37,18 +31,50 @@ export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) =
         `MAX_CHUNKS: ${MAX_CHUNKS}, MIN_SIMILARITY_THRESHOLD: ${MIN_SIMILARITY_THRESHOLD}`
     );
 
-    // Resolve the clone name and custom prompt from Settings so the system
-    // prompt is dynamically built with the operator's current configuration.
-    // Both values are passed explicitly to generateResponse() — this makes
-    // the persona construction visible at the route level and avoids relying
-    // on the service's internal DB fallback for the normal private-chat path.
+    // Resolve provider, model, and API keys from the authenticated user's
+    // settings so that switching the provider in Settings takes effect on the
+    // next request without any code change.
     const settings = await prisma.settings.findUnique({ where: { ownerId: userId } });
+
+    const aiProvider: AiProvider = (settings?.aiProvider as AiProvider) ?? 'openai';
+
+    // RAG embedding always uses OpenAI — require the OpenAI key unconditionally.
+    const openaiApiKey = settings?.openaiApiKeyEncrypted ?? null;
+    if (!openaiApiKey) {
+      return NextResponse.json(
+        {
+          error:
+            'OpenAI API key is required for document retrieval. Please configure it in Settings.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Resolve the chat-completion API key for the active provider.
+    const chatApiKey =
+      aiProvider === 'anthropic'
+        ? (settings?.anthropicApiKey ?? null)
+        : openaiApiKey;
+
+    if (!chatApiKey) {
+      const providerLabel = aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI';
+      return NextResponse.json(
+        {
+          error: `${providerLabel} API key is not configured. Please add it in Settings.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Resolve the model for the active provider, falling back to sensible defaults.
+    const chatModel =
+      aiProvider === 'anthropic'
+        ? (settings?.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL)
+        : (settings?.openaiModel ?? DEFAULT_OPENAI_MODEL);
+
     const cloneName = settings?.cloneName ?? undefined;
     // Build a composite custom prompt that incorporates the operator's saved
     // systemPrompt together with tone and response-length preferences.
-    // These three settings fields all control *style*, so merging them here
-    // keeps buildSystemPrompt()'s interface clean (it only accepts a single
-    // customPrompt string) while ensuring all style settings take effect.
     const customPrompt = buildCustomPrompt(
       settings?.systemPrompt ?? null,
       settings?.tone ?? null,
@@ -59,7 +85,12 @@ export const POST = requireAuth(async (request: NextRequest, ctx: AuthContext) =
       message: message.trim(),
       sessionId: sessionId || undefined,
       ownerId: userId,
-      apiKey,
+      // OpenAI key for RAG embeddings (always OpenAI)
+      apiKey: openaiApiKey,
+      // Provider-specific key and model for chat completions
+      chatApiKey,
+      chatProvider: aiProvider,
+      chatModel,
       showSources: showSources ?? false,
       cloneName,
       customPrompt,

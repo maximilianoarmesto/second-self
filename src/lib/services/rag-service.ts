@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { getOpenAIClient } from '@/lib/openai';
+import { getChatCompletion, DEFAULT_OPENAI_MODEL, type AiProvider } from '@/lib/ai-provider';
 import { searchSimilarChunks, generateEmbeddings } from './document-service';
 import { saveMessage, getMessages, renameSession } from './chat-service';
 import {
@@ -79,7 +80,27 @@ export interface GenerateResponseParams {
   message: string;
   sessionId?: number;
   ownerId?: number;
+  /**
+   * OpenAI API key used exclusively for RAG embedding (text-embedding-3-small).
+   * This is always an OpenAI key regardless of the active chat provider because
+   * pgvector retrieval is hard-coupled to OpenAI embeddings.
+   */
   apiKey: string;
+  /**
+   * API key for the active chat-completion provider.
+   * When omitted, falls back to `apiKey` (preserves backward-compat with OpenAI).
+   */
+  chatApiKey?: string;
+  /**
+   * The AI provider to use for chat completions.
+   * Defaults to `"openai"` when omitted.
+   */
+  chatProvider?: AiProvider;
+  /**
+   * Model identifier for the chat-completion call.
+   * Defaults to `DEFAULT_OPENAI_MODEL` when omitted.
+   */
+  chatModel?: string;
   showSources?: boolean;
   systemPromptOverride?: string;
   customSystemPrompt?: string;
@@ -220,6 +241,9 @@ export async function generateResponse(
   const {
     message,
     apiKey,
+    chatApiKey,
+    chatProvider = 'openai',
+    chatModel = DEFAULT_OPENAI_MODEL,
     showSources = false,
     customSystemPrompt,
     customPrompt,
@@ -229,7 +253,15 @@ export async function generateResponse(
     ownerId = 1,
   } = params;
 
+  // The OpenAI client is used exclusively for embedding (RAG retrieval) and
+  // for auto-titling new sessions — both always use OpenAI regardless of the
+  // active chat provider.
   const openai = getOpenAIClient(apiKey);
+
+  // Resolve the API key for chat completions: prefer the dedicated chatApiKey
+  // (which the route layer resolves from Settings), and fall back to apiKey
+  // so that existing call-sites that pass only apiKey continue to work.
+  const resolvedChatApiKey = chatApiKey ?? apiKey;
 
   // 1. Resolve or create the chat session
   let sessionId = params.sessionId;
@@ -314,13 +346,13 @@ export async function generateResponse(
   // Build the system prompt with identity/rules only (KB content injected into user turn)
   const systemPromptText = buildSystemPrompt(name, styleExtra || null);
 
-  // 8. Assemble the OpenAI messages array
-  const openaiMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+  // 8. Assemble the messages array
+  const chatMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
     { role: 'system', content: systemPromptText },
   ];
 
   for (const msg of conversationHistory) {
-    openaiMessages.push({
+    chatMessages.push({
       role: msg.role === 'USER' ? 'user' : msg.role === 'ASSISTANT' ? 'assistant' : 'system',
       content: msg.content,
     });
@@ -335,18 +367,20 @@ export async function generateResponse(
           .join('\n\n')
       : 'No relevant context found in the knowledge base.';
 
-  openaiMessages.push({
+  chatMessages.push({
     role: 'user',
     content: contextBlock + '\n\nQUESTION: ' + message,
   });
 
-  // 9. Call OpenAI
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: openaiMessages,
-  });
-
-  const rawAssistantMessage = completion.choices[0]?.message?.content ?? null;
+  // 9. Call the active provider via the multi-provider adapter.
+  //    RAG embeddings always use OpenAI (step 4 above); only the chat
+  //    completion is routed through the adapter.
+  const rawAssistantMessage = await getChatCompletion({
+    provider: chatProvider,
+    apiKey: resolvedChatApiKey,
+    model: chatModel,
+    messages: chatMessages,
+  }) || null;
 
   // 10. Sanitise the response
   const assistantMessage = rawAssistantMessage
