@@ -13,6 +13,26 @@ const DEFAULT_SYSTEM_PROMPT =
   'Infer tone, style, and manner of expression from the provided knowledge base context. ' +
   'Be natural, personal, and human. Do not sound robotic.';
 
+/**
+ * Produces a masked representation of an API key so the client knows one is
+ * stored without ever seeing the raw value.
+ *
+ * Mirrors the masking logic used for openaiApiKeyEncrypted and is shared by
+ * all API key fields (openaiApiKeyEncrypted, anthropicApiKey).
+ *
+ * Rules:
+ *  - null / undefined  → null  (no key stored)
+ *  - length > 8        → first 5 chars + ".." + last 4 chars
+ *  - any shorter value → "••••••••" (generic mask)
+ */
+function maskApiKey(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  if (raw.length > 8) {
+    return `${raw.slice(0, 5)}..${raw.slice(-4)}`;
+  }
+  return '••••••••';
+}
+
 export const GET = requireAuth(async (_request: NextRequest, ctx: AuthContext) => {
   try {
     const { userId } = ctx.auth;
@@ -34,20 +54,19 @@ export const GET = requireAuth(async (_request: NextRequest, ctx: AuthContext) =
       });
     }
 
-    // Return a masked version of the API key so the client knows one is stored.
-    // avatarUrl is included explicitly so the contract is clear to callers.
-    const { openaiApiKeyEncrypted, ...rest } = settings;
-    const maskedKey =
-      openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
-        ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
-        : openaiApiKeyEncrypted
-          ? '••••••••'
-          : null;
+    // Strip both raw API keys from the response and replace them with their
+    // masked equivalents so the client knows whether keys are stored without
+    // ever receiving the raw values.
+    const { openaiApiKeyEncrypted, anthropicApiKey, ...rest } = settings;
 
     return NextResponse.json({
       ...rest,
       avatarUrl: settings.avatarUrl ?? null,
-      openaiApiKeyMasked: maskedKey,
+      openaiApiKeyMasked: maskApiKey(openaiApiKeyEncrypted),
+      anthropicApiKeyMasked: maskApiKey(anthropicApiKey),
+      aiProvider: settings.aiProvider,
+      openaiModel: settings.openaiModel ?? null,
+      anthropicModel: settings.anthropicModel ?? null,
       updatedAt: settings.updatedAt.toISOString(),
     });
   } catch (error: any) {
@@ -64,7 +83,17 @@ export const PUT = requireAuth(async (request: NextRequest, ctx: AuthContext) =>
     const { userId } = ctx.auth;
 
     const body = await request.json();
-    const { cloneName, systemPrompt, tone, responseLength, openaiApiKey } = body;
+    const {
+      cloneName,
+      systemPrompt,
+      tone,
+      responseLength,
+      openaiApiKey,
+      anthropicApiKey,
+      aiProvider,
+      openaiModel,
+      anthropicModel,
+    } = body;
 
     // Also update the owner's display name when cloneName is provided.
     if (cloneName !== undefined) {
@@ -75,8 +104,8 @@ export const PUT = requireAuth(async (request: NextRequest, ctx: AuthContext) =>
     }
 
     // Build update data, only including provided fields.
-    // openaiApiKey === null explicitly clears the stored server key.
-    // openaiApiKey === undefined means the field was not sent (no change).
+    // A field set to null explicitly clears the stored value.
+    // A field set to undefined means it was not sent (no change).
     const updateData: Record<string, any> = {};
     if (cloneName !== undefined) updateData.cloneName = cloneName;
     if (systemPrompt !== undefined) updateData.systemPrompt = systemPrompt;
@@ -86,6 +115,13 @@ export const PUT = requireAuth(async (request: NextRequest, ctx: AuthContext) =>
       // null clears the key; any string value sets it
       updateData.openaiApiKeyEncrypted = openaiApiKey ?? null;
     }
+    if (anthropicApiKey !== undefined) {
+      // null clears the key; any string value sets it
+      updateData.anthropicApiKey = anthropicApiKey ?? null;
+    }
+    if (aiProvider !== undefined) updateData.aiProvider = aiProvider;
+    if (openaiModel !== undefined) updateData.openaiModel = openaiModel ?? null;
+    if (anthropicModel !== undefined) updateData.anthropicModel = anthropicModel ?? null;
 
     const settings = await prisma.settings.upsert({
       where: { ownerId: userId },
@@ -97,24 +133,25 @@ export const PUT = requireAuth(async (request: NextRequest, ctx: AuthContext) =>
         tone: tone || 'natural',
         responseLength: responseLength || 'balanced',
         ...(openaiApiKey ? { openaiApiKeyEncrypted: openaiApiKey } : {}),
+        ...(anthropicApiKey ? { anthropicApiKey } : {}),
+        ...(aiProvider ? { aiProvider } : {}),
+        ...(openaiModel !== undefined ? { openaiModel: openaiModel ?? null } : {}),
+        ...(anthropicModel !== undefined ? { anthropicModel: anthropicModel ?? null } : {}),
       },
     });
 
-    // Strip the raw API key from the response for security — the client only
-    // needs to know whether a key is stored (via the masked representation).
-    // avatarUrl is included explicitly so the contract is clear to callers.
-    const { openaiApiKeyEncrypted, ...rest } = settings;
-    const maskedKey =
-      openaiApiKeyEncrypted && openaiApiKeyEncrypted.length > 8
-        ? `${openaiApiKeyEncrypted.slice(0, 5)}..${openaiApiKeyEncrypted.slice(-4)}`
-        : openaiApiKeyEncrypted
-          ? '••••••••'
-          : null;
+    // Strip the raw API keys from the response for security — the client only
+    // needs to know whether keys are stored (via their masked representations).
+    const { openaiApiKeyEncrypted, anthropicApiKey: rawAnthropicKey, ...rest } = settings;
 
     return NextResponse.json({
       ...rest,
       avatarUrl: settings.avatarUrl ?? null,
-      openaiApiKeyMasked: maskedKey,
+      openaiApiKeyMasked: maskApiKey(openaiApiKeyEncrypted),
+      anthropicApiKeyMasked: maskApiKey(rawAnthropicKey),
+      aiProvider: settings.aiProvider,
+      openaiModel: settings.openaiModel ?? null,
+      anthropicModel: settings.anthropicModel ?? null,
       updatedAt: settings.updatedAt.toISOString(),
     });
   } catch (error: any) {

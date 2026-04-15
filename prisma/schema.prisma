@@ -46,20 +46,28 @@ model Owner {
 }
 
 model Settings {
-  id                    Int      @id @default(autoincrement())
-  ownerId               Int      @unique @map("owner_id")
+  id                       Int        @id @default(autoincrement())
+  ownerId                  Int        @unique @map("owner_id")
   /// Foreign key to the User table for multi-tenancy.
-  userId                Int?     @unique @map("user_id")
-  cloneName             String   @default("My Second Self") @map("clone_name")
+  userId                   Int?       @unique @map("user_id")
+  cloneName                String     @default("My Second Self") @map("clone_name")
   /// Additional persona instructions appended after the core first-person
   /// identity rules that are always injected by buildSystemPrompt() in the
   /// RAG service. Leave empty to use the built-in rules only.
-  systemPrompt          String   @default("") @map("system_prompt")
-  tone                  String   @default("natural")
-  responseLength        String   @default("balanced") @map("response_length")
-  openaiApiKeyEncrypted String?  @map("openai_api_key_encrypted")
-  avatarUrl             String?  @map("avatar_url")
-  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
+  systemPrompt             String     @default("") @map("system_prompt")
+  tone                     String     @default("natural")
+  responseLength           String     @default("balanced") @map("response_length")
+  openaiApiKeyEncrypted    String?    @map("openai_api_key_encrypted")
+  /// Anthropic API key stored in plain text (same treatment as openaiApiKeyEncrypted).
+  anthropicApiKey          String?    @map("anthropic_api_key")
+  /// Which AI provider to use for chat completions.
+  aiProvider               AiProvider @default(openai) @map("ai_provider")
+  /// OpenAI model identifier, e.g. "gpt-4o".
+  openaiModel              String?    @default("gpt-4o") @map("openai_model")
+  /// Anthropic model identifier, e.g. "claude-3-5-sonnet-20241022".
+  anthropicModel           String?    @default("claude-3-5-sonnet-20241022") @map("anthropic_model")
+  avatarUrl                String?    @map("avatar_url")
+  updatedAt                DateTime   @default(now()) @updatedAt @map("updated_at")
 
   owner Owner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   user  User? @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -157,6 +165,13 @@ model ShareLink {
 
   @@index([userId])
   @@map("share_links")
+}
+
+enum AiProvider {
+  openai    @map("openai")
+  anthropic @map("anthropic")
+
+  @@map("ai_provider")
 }
 
 enum DocumentStatus {
