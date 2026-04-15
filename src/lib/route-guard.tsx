@@ -1,70 +1,62 @@
 'use client';
 
-/**
- * RouteGuard — client-side authentication gate for private pages.
- *
- * Wraps any component tree and enforces the following contract:
- *
- *  - While the session is being restored (`isLoading === true`): renders
- *    nothing to prevent a flash of private content.
- *  - After the session resolves with `user === null`: calls
- *    `router.replace('/login?returnTo=<current-path>')` and renders nothing.
- *  - After the session resolves with a valid user: renders `children`.
- *
- * The decision logic lives in the companion `route-guard.ts` module as pure
- * functions so it can be unit-tested without a DOM renderer.
- *
- * Usage:
- *   <RouteGuard>
- *     <PrivatePage />
- *   </RouteGuard>
- *
- * The component must be rendered inside an `<AuthProvider>` tree.
- */
-
-import React, { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useEffect, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { deriveGuardDecision, buildLoginRedirectUrl } from '@/lib/route-guard';
-
-// Re-export the types and pure helpers so consumers can import from a single
-// location without knowing about the split between .ts and .tsx files.
-export type { GuardDecision } from '@/lib/route-guard';
-export { deriveGuardDecision, buildLoginRedirectUrl } from '@/lib/route-guard';
 
 // ---------------------------------------------------------------------------
-// Component
+// Types
 // ---------------------------------------------------------------------------
 
 interface RouteGuardProps {
-  children: React.ReactNode;
-  /**
-   * When `true`, the guard is bypassed and `children` are always rendered.
-   * Use this for public routes like /login, /signup, /clone/[token].
-   * Defaults to `false`.
-   */
-  isPublic?: boolean;
+  children: ReactNode;
 }
 
-export function RouteGuard({ children, isPublic = false }: RouteGuardProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const { user, isLoading } = useAuth();
+// ---------------------------------------------------------------------------
+// RouteGuard
+// ---------------------------------------------------------------------------
 
-  const decision = deriveGuardDecision(isLoading, user, isPublic);
+/**
+ * Protects client-side routes from unauthenticated access.
+ *
+ * Rendering rules:
+ *  - While `isLoading === true`:  render a neutral blank div (no redirect).
+ *    This covers the auth-hydration window on first render — including in
+ *    Docker production builds where useEffect fires after the initial paint.
+ *  - When `isLoading === false && user === null`: redirect to /login.
+ *  - When `isLoading === false && user !== null`: render children normally.
+ *
+ * The redirect is performed inside a useEffect so it only runs client-side
+ * and never during the loading phase.
+ */
+export function RouteGuard({ children }: RouteGuardProps) {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
-    if (decision === 'redirect') {
-      const destination = buildLoginRedirectUrl(pathname ?? '/');
-      router.replace(destination);
-    }
-  }, [decision, pathname, router]);
+    // Never redirect while the auth state is still being resolved.
+    if (isLoading) return;
 
-  if (decision === 'render') {
-    // eslint-disable-next-line react/jsx-no-useless-fragment
-    return <>{children}</>;
+    // Only redirect once we know for certain the user is NOT authenticated.
+    if (user === null) {
+      router.push('/login');
+    }
+  }, [isLoading, user, router]);
+
+  // ── Loading phase ────────────────────────────────────────────────────────
+  // Render nothing (blank div) while auth state is still being resolved.
+  // This prevents both the white flash and premature redirects.
+  if (isLoading) {
+    return <div aria-hidden="true" />;
   }
 
-  // 'loading' or 'redirect' — render nothing while transitioning.
-  return null;
+  // ── Unauthenticated ──────────────────────────────────────────────────────
+  // The useEffect above has already triggered the redirect; return null here
+  // so no page content flashes before the navigation completes.
+  if (user === null) {
+    return null;
+  }
+
+  // ── Authenticated ────────────────────────────────────────────────────────
+  return <>{children}</>;
 }

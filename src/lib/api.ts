@@ -1,51 +1,34 @@
-const API_KEY_STORAGE_KEY = 'openai-api-key';
-
-export function getStoredApiKey(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(API_KEY_STORAGE_KEY);
-}
-
-export function setStoredApiKey(key: string): void {
-  localStorage.setItem(API_KEY_STORAGE_KEY, key);
-}
-
-export function removeStoredApiKey(): void {
-  localStorage.removeItem(API_KEY_STORAGE_KEY);
-}
-
-export async function apiFetch<T = any>(
-  path: string,
-  options: RequestInit = {}
+/**
+ * Typed fetch wrapper used throughout the client-side application.
+ *
+ * Throws an Error with the server's `error` message when the response is
+ * not OK (status >= 400), so callers can catch it and surface a message.
+ */
+export async function apiFetch<T = unknown>(
+  url: string,
+  options?: RequestInit
 ): Promise<T> {
-  const apiKey = getStoredApiKey();
-
-  // Use a Headers instance so callers (and tests) can use .get() / .has()
-  const headers = new Headers(options.headers as HeadersInit | undefined);
-
-  if (apiKey) {
-    headers.set('x-openai-api-key', apiKey);
-  }
-
-  // Don't set Content-Type for FormData — the browser sets it automatically
-  // with the correct multipart boundary.
-  if (!(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
-
-  const response = await fetch(path, {
+  const response = await fetch(url, {
+    credentials: 'include',
     ...options,
-    headers,
+    headers: {
+      // Only set Content-Type to JSON when we are not sending FormData
+      // (the browser must set the boundary automatically for multipart).
+      ...(options?.body instanceof FormData
+        ? {}
+        : { 'Content-Type': 'application/json' }),
+      ...options?.headers,
+    },
   });
 
+  const data = await response.json();
+
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${response.status})`);
+    const message =
+      (data as { error?: string })?.error ||
+      `Request failed with status ${response.status}`;
+    throw new Error(message);
   }
 
-  // Handle 204 No Content
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
+  return data as T;
 }
