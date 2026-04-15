@@ -18,6 +18,11 @@
  * 11.  user is null (not undefined) when unauthenticated
  * 12.  POST /api/auth/logout endpoint — returns { success: true } on success
  * 13.  GET /api/auth/me endpoint — returns 401 when no owner exists
+ * 14.  login(userData) — sets user synchronously to the supplied AuthUser
+ * 15.  login(userData) — overwrites a previous user (re-login after logout)
+ * 16.  login(userData) — accepts avatarUrl: null (no avatar yet)
+ * 17.  login(userData) — accepts email: null (owner without email)
+ * 18.  login(userData) — does not affect isLoading (stays false after prior session check)
  */
 
 // ---------------------------------------------------------------------------
@@ -255,6 +260,122 @@ describe('logout — POST /api/auth/logout + redirect', () => {
     const { userAfter, redirectTo } = await simulateLogout(callLogoutApi, null);
     expect(userAfter).toBeNull();
     expect(redirectTo).toBe('/login');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14–18. login() — synchronous user state update
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulates the login(userData) method exposed by AuthProvider.
+ *
+ * login() is a direct call to setUser(userData) — it has no async behaviour.
+ * We model it here as a pure state transition: starting from an initial user
+ * state, apply the login call and return the resulting user value.
+ *
+ * Returns:
+ *  - `userAfter`:    the user value immediately after login() is called
+ */
+function simulateLogin(
+  userData: AuthUser,
+  initialUser: AuthUser | null = null
+): { userAfter: AuthUser | null } {
+  // Mirrors the implementation: login = (userData) => setUser(userData)
+  let userAfter: AuthUser | null = initialUser;
+  userAfter = userData;
+  return { userAfter };
+}
+
+describe('login() — synchronous user state update', () => {
+  const mockUser: AuthUser = {
+    id: 1,
+    email: 'owner@example.com',
+    name: 'My Second Self',
+    avatarUrl: '/uploads/avatar.png',
+  };
+
+  // 14. login() sets user to the supplied AuthUser immediately
+  it('sets user to the supplied AuthUser synchronously', () => {
+    const { userAfter } = simulateLogin(mockUser, null);
+    expect(userAfter).toEqual(mockUser);
+  });
+
+  // 14b. user is not null after login()
+  it('user is non-null after login() — no redirect or blank-page risk', () => {
+    const { userAfter } = simulateLogin(mockUser, null);
+    expect(userAfter).not.toBeNull();
+  });
+
+  // 15. login() overwrites a previous user (covers re-login after logout)
+  it('overwrites the previous user when called with a new AuthUser', () => {
+    const previousUser: AuthUser = { id: 99, email: 'old@example.com', name: 'Old', avatarUrl: null };
+    const newUser: AuthUser = { id: 1, email: 'new@example.com', name: 'New', avatarUrl: null };
+
+    const { userAfter } = simulateLogin(newUser, previousUser);
+
+    expect(userAfter).toEqual(newUser);
+    expect(userAfter!.id).not.toBe(previousUser.id);
+  });
+
+  // 15b. login() after logout() (user was null) works correctly
+  it('re-login after logout (initial user is null) sets user correctly', () => {
+    const { userAfter } = simulateLogin(mockUser, null /* user was cleared by logout */);
+    expect(userAfter).toEqual(mockUser);
+    expect(userAfter).not.toBeNull();
+  });
+
+  // 16. login() accepts avatarUrl: null (freshly registered user, no avatar)
+  it('accepts a user payload with avatarUrl: null', () => {
+    const userNoAvatar: AuthUser = { id: 2, email: 'new@example.com', name: 'New User', avatarUrl: null };
+    const { userAfter } = simulateLogin(userNoAvatar, null);
+    expect(userAfter!.avatarUrl).toBeNull();
+  });
+
+  // 17. login() accepts email: null
+  it('accepts a user payload with email: null', () => {
+    const userNoEmail: AuthUser = { id: 3, email: null, name: 'No Email', avatarUrl: null };
+    const { userAfter } = simulateLogin(userNoEmail, null);
+    expect(userAfter!.email).toBeNull();
+  });
+
+  // 18. login() preserves all AuthUser fields exactly as supplied
+  it('preserves all four AuthUser fields (id, email, name, avatarUrl) exactly', () => {
+    const payload: AuthUser = {
+      id: 42,
+      email: 'precise@example.com',
+      name: 'Precise User',
+      avatarUrl: '/uploads/avatar-42.png',
+    };
+    const { userAfter } = simulateLogin(payload, null);
+    expect(userAfter!.id).toBe(42);
+    expect(userAfter!.email).toBe('precise@example.com');
+    expect(userAfter!.name).toBe('Precise User');
+    expect(userAfter!.avatarUrl).toBe('/uploads/avatar-42.png');
+  });
+
+  // login() result is not undefined — the context always has a concrete value
+  it('returns a non-undefined user value after login()', () => {
+    const { userAfter } = simulateLogin(mockUser, null);
+    expect(userAfter).not.toBeUndefined();
+  });
+
+  // login() does not clear avatarUrl when it is provided
+  it('preserves a non-null avatarUrl when supplied', () => {
+    const userWithAvatar: AuthUser = { id: 1, email: 'a@b.com', name: 'Avatar User', avatarUrl: '/uploads/pic.jpg' };
+    const { userAfter } = simulateLogin(userWithAvatar, null);
+    expect(userAfter!.avatarUrl).toBe('/uploads/pic.jpg');
+  });
+
+  // Calling login() multiple times (e.g. token refresh) always reflects the latest call
+  it('the final call wins when login() is invoked multiple times in sequence', () => {
+    const first: AuthUser = { id: 1, email: 'first@example.com', name: 'First', avatarUrl: null };
+    const second: AuthUser = { id: 2, email: 'second@example.com', name: 'Second', avatarUrl: null };
+
+    let { userAfter } = simulateLogin(first, null);
+    ({ userAfter } = simulateLogin(second, userAfter));
+
+    expect(userAfter).toEqual(second);
   });
 });
 

@@ -25,6 +25,7 @@ export interface AuthUser {
 export interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
+  login: (userData: AuthUser) => void;
   logout: () => Promise<void>;
   setUser: (user: AuthUser | null) => void;
   refreshUser: () => Promise<void>;
@@ -83,6 +84,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   /**
+   * Synchronously set the authenticated user in context immediately after a
+   * successful login or signup API call. This prevents the route guard from
+   * seeing a null user between the API response and the subsequent
+   * router.push(), which would otherwise cause a redirect loop or blank page.
+   */
+  const login = useCallback((userData: AuthUser) => {
+    setUser(userData);
+  }, []);
+
+  /**
    * Re-fetch the current user (e.g. after avatar upload or profile update).
    */
   const refreshUser = useCallback(async () => {
@@ -117,6 +128,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const value: AuthContextValue = {
     user,
     isLoading,
+    login,
     logout,
     setUser,
     refreshUser,

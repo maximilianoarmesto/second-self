@@ -34,6 +34,12 @@
  * 27.  POST /api/auth/login is NOT called when client-side validation fails
  * 28.  Page is accessible without auth — /login is classified as an auth page by middleware
  * 29.  Authenticated users visiting /login are redirected to / (no redirect loop for unauth)
+ * 30.  Success — auth.login(userData) is called with the response body before router.push()
+ * 31.  Success — auth.login() is called with { id, email, name, avatarUrl } shape
+ * 32.  Success — auth.login() is NOT called when the API returns an error
+ * 33.  Success — auth.login() is NOT called when fetch throws a network error
+ * 34.  Success — auth.login() avatarUrl defaults to null when absent from response
+ * 35.  Success — auth.login() email defaults to null when absent from response
  */
 
 // ---------------------------------------------------------------------------
@@ -88,9 +94,20 @@ interface SubmitState {
   redirectedTo: string | null;
 }
 
+// Mirrors the AuthUser type from auth-context.tsx
+interface AuthUser {
+  id: number;
+  email: string | null;
+  name: string;
+  avatarUrl: string | null;
+}
+
 /**
  * Simulates the async submit flow from handleSubmit.
  * Returns a series of state snapshots to verify transitions precisely.
+ * Also tracks whether auth.login() was called and with what arguments,
+ * mirroring the new behaviour where login(userData) is called synchronously
+ * before router.push() on a successful API response.
  */
 async function simulateSubmit(
   email: string,
@@ -102,6 +119,8 @@ async function simulateSubmit(
   afterFetch: SubmitState;
   fetchCalled: boolean;
   fetchArgs: [string, RequestInit] | null;
+  authLoginCalled: boolean;
+  authLoginArg: AuthUser | null;
 }> {
   // Validate first — mirrors the early-return in handleSubmit
   const { valid } = validate(email, password);
@@ -111,6 +130,8 @@ async function simulateSubmit(
   let redirectedTo: string | null = null;
   let fetchCalled = false;
   let fetchArgs: [string, RequestInit] | null = null;
+  let authLoginCalled = false;
+  let authLoginArg: AuthUser | null = null;
 
   if (!valid) {
     return {
@@ -118,6 +139,8 @@ async function simulateSubmit(
       afterFetch: { isSubmitting, serverError, redirectedTo },
       fetchCalled,
       fetchArgs,
+      authLoginCalled,
+      authLoginArg,
     };
   }
 
@@ -141,6 +164,17 @@ async function simulateSubmit(
     if (!response.ok) {
       serverError = body.error ?? 'Something went wrong. Please try again.';
     } else {
+      // Mirror the new login page behaviour: call auth.login(userData) with the
+      // response body before calling router.push(), so the route guard sees a
+      // non-null user immediately.
+      authLoginCalled = true;
+      authLoginArg = {
+        id: body.id,
+        email: body.email ?? null,
+        name: body.name,
+        avatarUrl: body.avatarUrl ?? null,
+      };
+
       // Redirect — respect returnTo when it starts with "/"
       const returnTo = searchParams.returnTo;
       redirectedTo =
@@ -156,7 +190,7 @@ async function simulateSubmit(
   }
 
   const afterFetch: SubmitState = { isSubmitting, serverError, redirectedTo };
-  return { beforeFetch, afterFetch, fetchCalled, fetchArgs };
+  return { beforeFetch, afterFetch, fetchCalled, fetchArgs, authLoginCalled, authLoginArg };
 }
 
 // ---- 3. clearError helper (mirrors LoginPage.clearError) -----------------
@@ -649,5 +683,116 @@ describe('LoginPage — JSON request body', () => {
 
     const body = JSON.parse(fetchArgs![1].body as string);
     expect(body.password).toBe('MyP@ssw0rd!');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 30–35. auth.login() called before router.push() on successful login
+// ---------------------------------------------------------------------------
+
+describe('LoginPage — auth.login() called before router.push() on success', () => {
+  // 30. auth.login() is called on a successful API response
+  it('calls auth.login() when the API returns 200', async () => {
+    const mockFetch = mockOkResponse({ id: 1, email: 'user@example.com', name: 'User', avatarUrl: null });
+    const { authLoginCalled } = await simulateSubmit('user@example.com', 'pass', mockFetch);
+
+    expect(authLoginCalled).toBe(true);
+  });
+
+  // 30b. auth.login() is called BEFORE router.push() — tracked in the same success branch
+  it('auth.login() is called in the same success branch as router.push()', async () => {
+    const mockFetch = mockOkResponse({ id: 1, email: 'user@example.com', name: 'User', avatarUrl: null });
+    const { authLoginCalled, afterFetch } = await simulateSubmit('user@example.com', 'pass', mockFetch);
+
+    // Both must have happened in the success path
+    expect(authLoginCalled).toBe(true);
+    expect(afterFetch.redirectedTo).toBe('/');
+  });
+
+  // 31. auth.login() is called with { id, email, name, avatarUrl } shape
+  it('passes { id, email, name, avatarUrl } to auth.login()', async () => {
+    const responseBody = { id: 42, email: 'jane@example.com', name: 'Jane', avatarUrl: null };
+    const mockFetch = mockOkResponse(responseBody);
+    const { authLoginArg } = await simulateSubmit('jane@example.com', 'pass', mockFetch);
+
+    expect(authLoginArg).not.toBeNull();
+    expect(authLoginArg!.id).toBe(42);
+    expect(authLoginArg!.email).toBe('jane@example.com');
+    expect(authLoginArg!.name).toBe('Jane');
+    expect(Object.prototype.hasOwnProperty.call(authLoginArg, 'avatarUrl')).toBe(true);
+  });
+
+  // 31b. auth.login() arg has exactly four keys
+  it('auth.login() argument has exactly the four AuthUser fields', async () => {
+    const mockFetch = mockOkResponse({ id: 1, email: 'u@u.com', name: 'U', avatarUrl: null });
+    const { authLoginArg } = await simulateSubmit('u@u.com', 'pass', mockFetch);
+
+    const keys = Object.keys(authLoginArg!).sort();
+    expect(keys).toEqual(['avatarUrl', 'email', 'id', 'name']);
+  });
+
+  // 32. auth.login() is NOT called when the API returns an error
+  it('does NOT call auth.login() when the API returns a 401 error', async () => {
+    const mockFetch = mockErrorResponse(401, { error: 'Invalid credentials.' });
+    const { authLoginCalled } = await simulateSubmit('user@example.com', 'wrongpass', mockFetch);
+
+    expect(authLoginCalled).toBe(false);
+  });
+
+  it('does NOT call auth.login() when the API returns a 500 error', async () => {
+    const mockFetch = mockErrorResponse(500, { error: 'Server error.' });
+    const { authLoginCalled } = await simulateSubmit('user@example.com', 'pass', mockFetch);
+
+    expect(authLoginCalled).toBe(false);
+  });
+
+  // 33. auth.login() is NOT called when fetch throws a network error
+  it('does NOT call auth.login() when fetch throws a network error', async () => {
+    const mockFetch = mockNetworkFailure();
+    const { authLoginCalled } = await simulateSubmit('user@example.com', 'pass', mockFetch);
+
+    expect(authLoginCalled).toBe(false);
+  });
+
+  // 34. auth.login() avatarUrl defaults to null when absent from response
+  it('passes avatarUrl: null when the API response does not include avatarUrl', async () => {
+    // Login API returns { id, email, name } without avatarUrl
+    const mockFetch = mockOkResponse({ id: 1, email: 'user@example.com', name: 'User' });
+    const { authLoginArg } = await simulateSubmit('user@example.com', 'pass', mockFetch);
+
+    expect(authLoginArg!.avatarUrl).toBeNull();
+  });
+
+  // 35. auth.login() email defaults to null when absent from response
+  it('passes email: null when the API response does not include email', async () => {
+    const mockFetch = mockOkResponse({ id: 1, name: 'NoEmail User' });
+    const { authLoginArg } = await simulateSubmit('user@example.com', 'pass', mockFetch);
+
+    expect(authLoginArg!.email).toBeNull();
+  });
+
+  // Additional: auth.login() is not called when validation fails (fetch never runs)
+  it('does NOT call auth.login() when client-side validation fails', async () => {
+    const mockFetch = mockOkResponse();
+    const { authLoginCalled } = await simulateSubmit('', '', mockFetch);
+
+    expect(authLoginCalled).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // Additional: the id passed to auth.login() matches the response body id
+  it('auth.login() id matches the response body id exactly', async () => {
+    const mockFetch = mockOkResponse({ id: 99, email: 'a@b.com', name: 'A', avatarUrl: null });
+    const { authLoginArg } = await simulateSubmit('a@b.com', 'pass', mockFetch);
+
+    expect(authLoginArg!.id).toBe(99);
+  });
+
+  // Additional: the name passed to auth.login() matches the response body name
+  it('auth.login() name matches the response body name exactly', async () => {
+    const mockFetch = mockOkResponse({ id: 1, email: 'a@b.com', name: 'My Clone', avatarUrl: null });
+    const { authLoginArg } = await simulateSubmit('a@b.com', 'pass', mockFetch);
+
+    expect(authLoginArg!.name).toBe('My Clone');
   });
 });

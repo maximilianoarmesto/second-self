@@ -24,6 +24,12 @@
  *  8.  The user object contains id (number), email, name (string), avatarUrl.
  *  9.  user is strictly null — not undefined — when unauthenticated.
  * 10.  logout() calls the correct endpoint: POST /api/auth/logout.
+ * 26. login(userData) sets user synchronously — route guard sees populated
+ *     user before router.push() is called after a successful POST /api/auth/login.
+ * 27. login(userData) overwrites a null user (post-logout re-login scenario).
+ * 28. login(userData) after logout() — route guard returns 'render' immediately.
+ * 29. login(userData) payload shape — all four AuthUser fields are preserved.
+ * 30. login(userData) with avatarUrl: null is accepted (newly registered user).
  *
  * RouteGuard — deriveGuardDecision():
  * 11.  Returns 'loading' while isLoading is true for a private route.
@@ -167,6 +173,26 @@ async function simulateLogout(
   }
 
   return { endpointCalled, userAfter, redirectedTo };
+}
+
+// ---------------------------------------------------------------------------
+// Pure helper — simulate the login() method exposed by AuthProvider
+// ---------------------------------------------------------------------------
+
+/**
+ * Simulates login(userData) — a direct call to setUser(userData).
+ * Returns the user state immediately after the call, mirroring the synchronous
+ * nature of the real implementation.
+ */
+function simulateLogin(
+  userData: AuthUser,
+  initialUser: AuthUser | null = null,
+): { userAfter: AuthUser | null } {
+  // login = useCallback((userData) => setUser(userData), [])
+  // setUser is synchronous in React for the purposes of this state model.
+  let userAfter: AuthUser | null = initialUser;
+  userAfter = userData;
+  return { userAfter };
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +462,101 @@ describe('logout() — endpoint call and user state', () => {
 
     expect(userAfter).toBeNull();
     expect(redirectedTo).toBe('/login');
+  });
+});
+
+// ===========================================================================
+// 26–30. login() — synchronous user state update (no redirect loop guarantee)
+// ===========================================================================
+
+describe('login() — synchronous user state update', () => {
+  // 26. login() sets user immediately — route guard sees non-null user before push().
+  it('sets user to the supplied AuthUser synchronously (user is non-null after call)', () => {
+    const { userAfter } = simulateLogin(MOCK_USER, null);
+    expect(userAfter).toEqual(MOCK_USER);
+    expect(userAfter).not.toBeNull();
+  });
+
+  // 26b. The route guard returns 'render' immediately after login() because
+  //      user is non-null — no redirect loop can occur.
+  it('route guard returns "render" immediately after login() is called', () => {
+    const { userAfter } = simulateLogin(MOCK_USER, null);
+    const decision = deriveGuardDecision(false, userAfter, false);
+    expect(decision).toBe<GuardDecision>('render');
+  });
+
+  // 27. login() from null (post-logout) correctly populates user.
+  it('sets user from null to the supplied AuthUser (post-logout re-login scenario)', () => {
+    // After logout(), user is null; login() must restore it without a page refresh.
+    const { userAfter } = simulateLogin(MOCK_USER, null);
+    expect(userAfter).not.toBeNull();
+    expect(userAfter!.id).toBe(MOCK_USER.id);
+  });
+
+  // 28. Full cycle: logout → user is null → login → user is populated → guard renders.
+  it('after logout → login cycle, the route guard returns "render" (no redirect loop)', async () => {
+    // Step 1: simulate logout — user becomes null.
+    const callLogout = jest.fn().mockResolvedValue(undefined);
+    const { userAfter: userAfterLogout } = await simulateLogout(callLogout, MOCK_USER);
+    expect(userAfterLogout).toBeNull();
+
+    // Guard would redirect at this point (user is null).
+    expect(deriveGuardDecision(false, userAfterLogout, false)).toBe<GuardDecision>('redirect');
+
+    // Step 2: simulate login — user is restored synchronously.
+    const { userAfter: userAfterLogin } = simulateLogin(MOCK_USER, userAfterLogout);
+    expect(userAfterLogin).toEqual(MOCK_USER);
+
+    // Guard now renders — no redirect loop.
+    expect(deriveGuardDecision(false, userAfterLogin, false)).toBe<GuardDecision>('render');
+  });
+
+  // 29. login() payload — all four fields preserved exactly.
+  it('preserves all four AuthUser fields (id, email, name, avatarUrl) after login()', () => {
+    const payload: AuthUser = {
+      id: 7,
+      email: 'test@example.com',
+      name: 'Test User',
+      avatarUrl: '/uploads/test.png',
+    };
+    const { userAfter } = simulateLogin(payload, null);
+    expect(userAfter!.id).toBe(7);
+    expect(userAfter!.email).toBe('test@example.com');
+    expect(userAfter!.name).toBe('Test User');
+    expect(userAfter!.avatarUrl).toBe('/uploads/test.png');
+  });
+
+  // 30. login() accepts avatarUrl: null (user has no avatar yet — typical for new signups).
+  it('accepts avatarUrl: null in the login payload (new user without avatar)', () => {
+    const newUser: AuthUser = {
+      id: 1,
+      email: 'fresh@example.com',
+      name: 'Fresh User',
+      avatarUrl: null,
+    };
+    const { userAfter } = simulateLogin(newUser, null);
+    expect(userAfter).not.toBeNull();
+    expect(userAfter!.avatarUrl).toBeNull();
+    // Route guard still renders (user is non-null)
+    expect(deriveGuardDecision(false, userAfter, false)).toBe<GuardDecision>('render');
+  });
+
+  // Additional: login() overwrites an existing user (e.g. switching accounts).
+  it('overwrites any existing user state with the new AuthUser payload', () => {
+    const previousUser: AuthUser = { id: 99, email: 'old@example.com', name: 'Old', avatarUrl: null };
+    const newUser: AuthUser = { id: 1, email: 'new@example.com', name: 'New', avatarUrl: null };
+
+    const { userAfter } = simulateLogin(newUser, previousUser);
+
+    expect(userAfter!.id).toBe(1);
+    expect(userAfter!.email).toBe('new@example.com');
+    expect(userAfter!.id).not.toBe(previousUser.id);
+  });
+
+  // Additional: login() result is never undefined.
+  it('user is strictly non-undefined after login()', () => {
+    const { userAfter } = simulateLogin(MOCK_USER, null);
+    expect(userAfter).not.toBeUndefined();
   });
 });
 

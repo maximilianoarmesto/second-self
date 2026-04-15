@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Logo } from '@/components/ui/Logo';
+import { useAuth } from '@/lib/auth-context';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -15,6 +16,7 @@ import { Logo } from '@/components/ui/Logo';
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const auth = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -73,6 +75,16 @@ export default function LoginPage() {
       }
 
       // Success — session cookie is now set.
+      // Synchronously update the auth context so the route guard sees an
+      // authenticated user before navigation happens, preventing a redirect
+      // loop or blank-page flash.
+      auth.login({
+        id: body.id,
+        email: body.email ?? null,
+        name: body.name,
+        avatarUrl: body.avatarUrl ?? null,
+      });
+
       // Redirect to the page that originally triggered the auth guard,
       // falling back to the dashboard root.
       const returnTo = searchParams.get('returnTo');
