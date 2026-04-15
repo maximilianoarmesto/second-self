@@ -1,21 +1,13 @@
 'use client';
 
-/**
- * Auth context — single source of truth for the authenticated user.
- *
- * On mount, `AuthProvider` calls GET /api/auth/me to restore the session.
- * The resolved user object (or `null` when unauthenticated) is made available
- * to every child component via the `useAuth()` hook.
- *
- * Usage:
- *   // Wrap the private layout:
- *   <AuthProvider>{children}</AuthProvider>
- *
- *   // Consume anywhere inside the tree:
- *   const { user, isLoading, logout } = useAuth();
- */
-
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 
@@ -31,42 +23,55 @@ export interface AuthUser {
 }
 
 export interface AuthContextValue {
-  /** The authenticated user, or `null` when not logged in. */
   user: AuthUser | null;
-  /** `true` while the initial GET /api/auth/me request is in flight. */
   isLoading: boolean;
-  /** Calls POST /api/auth/logout then redirects to /login. */
   logout: () => Promise<void>;
+  setUser: (user: AuthUser | null) => void;
+  refreshUser: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
-  // Restore session on mount
+export function AuthProvider({ children }: AuthProviderProps) {
+  // isLoading MUST default to `true` so the guard never redirects before
+  // the session check has had a chance to run — even in Docker production
+  // builds where the first useEffect fires slightly later than in dev.
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const router = useRouter();
+
   useEffect(() => {
     let cancelled = false;
 
     async function restoreSession() {
       try {
         const data = await apiFetch<AuthUser>('/api/auth/me');
-        if (!cancelled) setUser(data);
+        if (!cancelled) {
+          setUser(data);
+        }
       } catch {
-        // 401 or network error — treat as unauthenticated
-        if (!cancelled) setUser(null);
+        // 401 or network error — user is not authenticated
+        if (!cancelled) {
+          setUser(null);
+        }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        // Always flip the loading flag regardless of outcome
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
@@ -77,38 +82,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  /**
+   * Re-fetch the current user (e.g. after avatar upload or profile update).
+   */
+  const refreshUser = useCallback(async () => {
+    try {
+      const data = await apiFetch<AuthUser>('/api/auth/me');
+      setUser(data);
+    } catch {
+      setUser(null);
+    }
+  }, []);
+
+  /**
+   * Log out the current user:
+   *  1. POST /api/auth/logout (clears the HttpOnly session cookie)
+   *  2. Clear local user state
+   *  3. Redirect to /login
+   *
+   * The finally block guarantees that state is cleared and the redirect
+   * happens even if the API call fails (e.g. network error).
+   */
   const logout = useCallback(async () => {
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {
-      // Even if the server call fails, clear client-side state and redirect
+      // Intentionally swallowed — we still want to clear state and redirect
     } finally {
       setUser(null);
       router.push('/login');
     }
   }, [router]);
 
-  return (
-    <AuthContext.Provider value={{ user, isLoading, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value: AuthContextValue = {
+    user,
+    isLoading,
+    logout,
+    setUser,
+    refreshUser,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the current auth state: `{ user, isLoading, logout }`.
- *
- * Must be called from a component that is a descendant of `AuthProvider`.
- * Throws if used outside the provider so misconfigured trees are caught early.
- */
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (ctx === null) {
-    throw new Error('useAuth() must be used inside <AuthProvider>.');
+  if (!ctx) {
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return ctx;
 }
