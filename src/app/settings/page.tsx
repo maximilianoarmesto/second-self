@@ -1,13 +1,27 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, Save, User } from 'lucide-react';
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Save,
+  User,
+  ChevronDown,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, getStoredApiKey, setStoredApiKey } from '@/lib/api';
 import { setAvatarUrl as publishAvatarUrl } from '@/lib/avatar-store';
 import type { SettingsData } from '@/types/settings';
+import type { AiProvider } from '@/lib/ai-provider';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error';
 type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
@@ -25,6 +39,122 @@ const RESPONSE_LENGTH_OPTIONS = [
   { value: 'balanced', label: 'Balanced' },
   { value: 'detailed', label: 'Detailed' },
 ];
+
+const OPENAI_MODELS = [
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+];
+
+const ANTHROPIC_MODELS = [
+  { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
+  { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+  { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
+];
+
+const DEFAULT_OPENAI_MODEL = 'gpt-4o';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022';
+
+// ---------------------------------------------------------------------------
+// Shared styled select — reuses Input visual style for consistency
+// ---------------------------------------------------------------------------
+
+interface StyledSelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  options: { value: string; label: string }[];
+}
+
+function StyledSelect({ options, className, ...props }: StyledSelectProps) {
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      <select
+        {...props}
+        className="appearance-none flex h-10 w-full rounded-md border border-gray-300 bg-white pl-3 pr-8 py-2 text-sm text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 focus-visible:border-black disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+        aria-hidden="true"
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TestConnectionButton — shared feedback icon inside the Test button
+// ---------------------------------------------------------------------------
+
+function TestConnectionIcon({ status }: { status: TestStatus }) {
+  if (status === 'testing') return <Loader2 className="w-4 h-4 animate-spin" />;
+  if (status === 'success') return <CheckCircle2 className="w-4 h-4" />;
+  if (status === 'error') return <XCircle className="w-4 h-4" />;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// ProviderApiKeyInput — masked API key field with show/hide toggle
+// ---------------------------------------------------------------------------
+
+interface ProviderApiKeyInputProps {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  label: string;
+  serverKeyMasked: string | null;
+}
+
+function ProviderApiKeyInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  label,
+  serverKeyMasked,
+}: ProviderApiKeyInputProps) {
+  const [show, setShow] = useState(false);
+
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-sm font-medium text-black">
+        {label}
+      </label>
+      <div className="relative max-w-lg">
+        <Input
+          id={id}
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="pr-10"
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={() => setShow((v) => !v)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black transition-colors"
+          aria-label={show ? 'Hide API key' : 'Show API key'}
+        >
+          {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+      {serverKeyMasked && (
+        <p className="text-xs text-gray-500">
+          Stored key:{' '}
+          <code className="font-mono text-black">{serverKeyMasked}</code>
+        </p>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // AvatarUpload sub-component
@@ -239,38 +369,59 @@ export default function SettingsPage() {
   const [responseLength, setResponseLength] = useState('balanced');
   const [systemPrompt, setSystemPrompt] = useState('');
 
-  // API key state
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [storeKeyOnServer, setStoreKeyOnServer] = useState(false);
-  const [serverKeyMasked, setServerKeyMasked] = useState<string | null>(null);
-  const [testStatus, setTestStatus] = useState<TestStatus>('idle');
-  const [testMessage, setTestMessage] = useState('');
+  // ---------------------------------------------------------------------------
+  // AI Provider state
+  // ---------------------------------------------------------------------------
+
+  /** Which provider is active for chat completions. */
+  const [aiProvider, setAiProvider] = useState<AiProvider>('openai');
+
+  // OpenAI
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiServerKeyMasked, setOpenaiServerKeyMasked] = useState<string | null>(null);
+  const [openaiModel, setOpenaiModel] = useState(DEFAULT_OPENAI_MODEL);
+  const [openaiTestStatus, setOpenaiTestStatus] = useState<TestStatus>('idle');
+  const [openaiTestMessage, setOpenaiTestMessage] = useState('');
+
+  // Anthropic
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [anthropicServerKeyMasked, setAnthropicServerKeyMasked] = useState<string | null>(null);
+  const [anthropicModel, setAnthropicModel] = useState(DEFAULT_ANTHROPIC_MODEL);
+  const [anthropicTestStatus, setAnthropicTestStatus] = useState<TestStatus>('idle');
+  const [anthropicTestMessage, setAnthropicTestMessage] = useState('');
 
   // ---- Load settings ----
   useEffect(() => {
     async function load() {
       try {
         const data = await apiFetch<SettingsData>('/api/settings');
+
         setCloneName(data.cloneName ?? '');
         setTone(data.tone ?? 'natural');
         setResponseLength(data.responseLength ?? 'balanced');
         setSystemPrompt(data.systemPrompt ?? '');
         setAvatarUrl(data.avatarUrl ?? null);
-        if (data.openaiApiKeyMasked) {
-          setServerKeyMasked(data.openaiApiKeyMasked);
-          setStoreKeyOnServer(true);
-        }
+
+        // AI provider
+        setAiProvider(data.aiProvider ?? 'openai');
+
+        // OpenAI
+        setOpenaiServerKeyMasked(data.openaiApiKeyMasked ?? null);
+        setOpenaiModel(data.openaiModel ?? DEFAULT_OPENAI_MODEL);
+
+        // Anthropic
+        setAnthropicServerKeyMasked(data.anthropicApiKeyMasked ?? null);
+        setAnthropicModel(data.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL);
       } catch {
-        // Use defaults
+        // Use defaults on error
       } finally {
         setLoading(false);
       }
     }
 
-    // Load API key from localStorage
+    // Pre-fill OpenAI key from localStorage (browser-side cache)
     const storedKey = getStoredApiKey();
-    if (storedKey) setApiKey(storedKey);
+    if (storedKey) setOpenaiApiKey(storedKey);
 
     load();
   }, []);
@@ -279,20 +430,29 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     setSaveMessage(null);
+
     try {
       const payload: Record<string, string | null> = {
         cloneName,
         tone,
         responseLength,
         systemPrompt,
+        aiProvider,
+        openaiModel,
+        anthropicModel,
       };
 
-      if (storeKeyOnServer && apiKey) {
-        // Store the key on the server
-        payload.openaiApiKey = apiKey;
-      } else if (!storeKeyOnServer && serverKeyMasked) {
-        // User unchecked the box and there was a key — clear it from the server
-        payload.openaiApiKey = null;
+      // OpenAI key: send new value when the user typed one; otherwise leave
+      // the server-side key unchanged (don't send the field at all).
+      if (openaiApiKey) {
+        payload.openaiApiKey = openaiApiKey;
+        // Mirror to localStorage for same-session requests that read it client-side
+        setStoredApiKey(openaiApiKey);
+      }
+
+      // Anthropic key: send new value when typed; leave unchanged otherwise.
+      if (anthropicApiKey) {
+        payload.anthropicApiKey = anthropicApiKey;
       }
 
       const saved = await apiFetch<SettingsData>('/api/settings', {
@@ -300,19 +460,13 @@ export default function SettingsPage() {
         body: JSON.stringify(payload),
       });
 
-      // Sync the server-key masked display from the authoritative server response
-      // rather than computing it locally, so the UI always reflects what the
-      // server actually stored.
-      if (saved.openaiApiKeyMasked) {
-        setServerKeyMasked(saved.openaiApiKeyMasked);
-        setStoreKeyOnServer(true);
-      } else {
-        setServerKeyMasked(null);
-        // Only uncheck the box if the save was intended to clear the key.
-        if (!storeKeyOnServer) {
-          setStoreKeyOnServer(false);
-        }
-      }
+      // Sync masked key displays from the authoritative server response.
+      setOpenaiServerKeyMasked(saved.openaiApiKeyMasked ?? null);
+      setAnthropicServerKeyMasked(saved.anthropicApiKeyMasked ?? null);
+
+      // Sync model values back in case the server normalised them.
+      setOpenaiModel(saved.openaiModel ?? DEFAULT_OPENAI_MODEL);
+      setAnthropicModel(saved.anthropicModel ?? DEFAULT_ANTHROPIC_MODEL);
 
       setSaveMessage({ type: 'success', text: 'Settings saved successfully.' });
       setTimeout(() => setSaveMessage(null), 4000);
@@ -326,36 +480,59 @@ export default function SettingsPage() {
     }
   };
 
-  // ---- Save API key to localStorage ----
-  const handleApiKeyChange = (value: string) => {
-    setApiKey(value);
-    setStoredApiKey(value);
-    setTestStatus('idle');
-    setTestMessage('');
-  };
+  // ---- Test connection — OpenAI ----
+  const testOpenAI = async () => {
+    setOpenaiTestStatus('testing');
+    setOpenaiTestMessage('');
 
-  // ---- Test connection ----
-  const testConnection = async () => {
-    setTestStatus('testing');
-    setTestMessage('');
     try {
       const result = await apiFetch<{ success: boolean; message?: string }>(
         '/api/settings/test-connection',
-        { method: 'POST' }
+        {
+          method: 'POST',
+          body: JSON.stringify({ provider: 'openai', apiKey: openaiApiKey }),
+        }
       );
       if (result.success) {
-        setTestStatus('success');
-        setTestMessage('Connection successful. Your API key is valid.');
+        setOpenaiTestStatus('success');
+        setOpenaiTestMessage('Connection successful. Your OpenAI key is valid.');
       } else {
-        setTestStatus('error');
-        setTestMessage(result.message ?? 'Connection test failed.');
+        setOpenaiTestStatus('error');
+        setOpenaiTestMessage(result.message ?? 'Connection test failed.');
       }
     } catch (err: unknown) {
-      setTestStatus('error');
-      setTestMessage(err instanceof Error ? err.message : 'Connection test failed.');
+      setOpenaiTestStatus('error');
+      setOpenaiTestMessage(err instanceof Error ? err.message : 'Connection test failed.');
     }
   };
 
+  // ---- Test connection — Anthropic ----
+  const testAnthropic = async () => {
+    setAnthropicTestStatus('testing');
+    setAnthropicTestMessage('');
+
+    try {
+      const result = await apiFetch<{ success: boolean; message?: string }>(
+        '/api/settings/test-connection',
+        {
+          method: 'POST',
+          body: JSON.stringify({ provider: 'anthropic', apiKey: anthropicApiKey }),
+        }
+      );
+      if (result.success) {
+        setAnthropicTestStatus('success');
+        setAnthropicTestMessage('Connection successful. Your Anthropic key is valid.');
+      } else {
+        setAnthropicTestStatus('error');
+        setAnthropicTestMessage(result.message ?? 'Connection test failed.');
+      }
+    } catch (err: unknown) {
+      setAnthropicTestStatus('error');
+      setAnthropicTestMessage(err instanceof Error ? err.message : 'Connection test failed.');
+    }
+  };
+
+  // ---- Loading skeleton ----
   if (loading) {
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -379,7 +556,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Profile Image */}
+      {/* ── Profile Image ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Profile Image</CardTitle>
@@ -401,7 +578,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Clone Name */}
+      {/* ── Clone Name ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Clone Display Name</CardTitle>
@@ -419,93 +596,207 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* OpenAI API Key */}
+      {/* ── AI Provider ── */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">OpenAI API Key</CardTitle>
+          <CardTitle className="text-base">AI Provider</CardTitle>
           <CardDescription>
-            Your key is stored in your browser&apos;s localStorage and sent with each request.
-            Optionally, store it on the server to enable public clone access without requiring
-            visitors to supply their own key.
+            Choose which AI provider powers your clone&apos;s chat responses. Configure both
+            providers below — you can switch the active one at any time.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2 max-w-lg">
-            <div className="relative flex-1">
-              <Input
-                type={showApiKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => handleApiKeyChange(e.target.value)}
-                placeholder="sk-..."
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black transition-colors"
-                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+        <CardContent className="space-y-6">
+          {/* ── Provider selector ── */}
+          <fieldset>
+            <legend className="text-sm font-medium text-black mb-3">Active provider</legend>
+            <div className="flex gap-3">
+              {/* OpenAI radio */}
+              <label
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-md border cursor-pointer transition-colors select-none ${
+                  aiProvider === 'openai'
+                    ? 'border-black bg-black text-white'
+                    : 'border-gray-300 bg-white text-black hover:border-gray-400 hover:bg-gray-50'
+                }`}
               >
-                {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <Button
-              variant="outline"
-              onClick={testConnection}
-              disabled={!apiKey || testStatus === 'testing'}
-              className="gap-2 flex-shrink-0"
-            >
-              {testStatus === 'testing' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : testStatus === 'success' ? (
-                <CheckCircle2 className="w-4 h-4" />
-              ) : testStatus === 'error' ? (
-                <XCircle className="w-4 h-4" />
-              ) : null}
-              Test Connection
-            </Button>
-          </div>
-          {testMessage && (
-            <p
-              className={`text-sm ${
-                testStatus === 'success'
-                  ? 'text-green-700'
-                  : testStatus === 'error'
-                    ? 'text-red-700'
-                    : 'text-black'
-              }`}
-            >
-              {testMessage}
-            </p>
-          )}
+                <input
+                  type="radio"
+                  name="aiProvider"
+                  value="openai"
+                  checked={aiProvider === 'openai'}
+                  onChange={() => setAiProvider('openai')}
+                  className="sr-only"
+                />
+                <span className="text-sm font-medium">OpenAI</span>
+              </label>
 
-          {/* Store key on server option */}
-          <div className="border border-gray-200 rounded-lg p-4 space-y-2 max-w-lg">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={storeKeyOnServer}
-                onChange={(e) => setStoreKeyOnServer(e.target.checked)}
-                className="rounded border-gray-300"
+              {/* Anthropic radio */}
+              <label
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-md border cursor-pointer transition-colors select-none ${
+                  aiProvider === 'anthropic'
+                    ? 'border-black bg-black text-white'
+                    : 'border-gray-300 bg-white text-black hover:border-gray-400 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="aiProvider"
+                  value="anthropic"
+                  checked={aiProvider === 'anthropic'}
+                  onChange={() => setAiProvider('anthropic')}
+                  className="sr-only"
+                />
+                <span className="text-sm font-medium">Anthropic</span>
+              </label>
+            </div>
+          </fieldset>
+
+          {/* ── Divider ── */}
+          <div className="border-t border-gray-100" />
+
+          {/* ── OpenAI subsection ── */}
+          <section aria-label="OpenAI configuration">
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-sm font-semibold text-black">OpenAI</h3>
+              {aiProvider === 'openai' && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full border border-black text-black bg-white">
+                  Active
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {/* API key input */}
+              <ProviderApiKeyInput
+                id="openai-api-key"
+                label="API Key"
+                value={openaiApiKey}
+                onChange={(val) => {
+                  setOpenaiApiKey(val);
+                  setOpenaiTestStatus('idle');
+                  setOpenaiTestMessage('');
+                }}
+                placeholder="sk-..."
+                serverKeyMasked={openaiServerKeyMasked}
               />
-              <span className="text-sm font-medium text-black">
-                Store API key on server for public clone access
-              </span>
-            </label>
-            <p className="text-xs text-gray-500">
-              When enabled, your API key will be saved on the server so visitors can chat with
-              your public clone without needing their own key. The key is sent when you click
-              &quot;Save Settings&quot;. Uncheck and save to remove the server-stored key.
-            </p>
-            {serverKeyMasked && storeKeyOnServer && (
-              <p className="text-xs text-gray-500">
-                Currently stored: <code className="text-black font-mono">{serverKeyMasked}</code>
-              </p>
-            )}
-          </div>
+
+              {/* Model dropdown */}
+              <div className="space-y-1.5">
+                <label htmlFor="openai-model" className="text-sm font-medium text-black">
+                  Model
+                </label>
+                <StyledSelect
+                  id="openai-model"
+                  value={openaiModel}
+                  onChange={(e) => setOpenaiModel(e.target.value)}
+                  options={OPENAI_MODELS}
+                  className="max-w-sm"
+                />
+              </div>
+
+              {/* Test connection */}
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={testOpenAI}
+                  disabled={!openaiApiKey || openaiTestStatus === 'testing'}
+                  className="gap-2"
+                >
+                  <TestConnectionIcon status={openaiTestStatus} />
+                  Test Connection
+                </Button>
+                {openaiTestMessage && (
+                  <p
+                    className={`text-sm ${
+                      openaiTestStatus === 'success'
+                        ? 'text-green-700'
+                        : openaiTestStatus === 'error'
+                          ? 'text-red-700'
+                          : 'text-black'
+                    }`}
+                  >
+                    {openaiTestMessage}
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ── Divider ── */}
+          <div className="border-t border-gray-100" />
+
+          {/* ── Anthropic subsection ── */}
+          <section aria-label="Anthropic configuration">
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-sm font-semibold text-black">Anthropic</h3>
+              {aiProvider === 'anthropic' && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full border border-black text-black bg-white">
+                  Active
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {/* API key input */}
+              <ProviderApiKeyInput
+                id="anthropic-api-key"
+                label="API Key"
+                value={anthropicApiKey}
+                onChange={(val) => {
+                  setAnthropicApiKey(val);
+                  setAnthropicTestStatus('idle');
+                  setAnthropicTestMessage('');
+                }}
+                placeholder="sk-ant-..."
+                serverKeyMasked={anthropicServerKeyMasked}
+              />
+
+              {/* Model dropdown */}
+              <div className="space-y-1.5">
+                <label htmlFor="anthropic-model" className="text-sm font-medium text-black">
+                  Model
+                </label>
+                <StyledSelect
+                  id="anthropic-model"
+                  value={anthropicModel}
+                  onChange={(e) => setAnthropicModel(e.target.value)}
+                  options={ANTHROPIC_MODELS}
+                  className="max-w-sm"
+                />
+              </div>
+
+              {/* Test connection */}
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={testAnthropic}
+                  disabled={!anthropicApiKey || anthropicTestStatus === 'testing'}
+                  className="gap-2"
+                >
+                  <TestConnectionIcon status={anthropicTestStatus} />
+                  Test Connection
+                </Button>
+                {anthropicTestMessage && (
+                  <p
+                    className={`text-sm ${
+                      anthropicTestStatus === 'success'
+                        ? 'text-green-700'
+                        : anthropicTestStatus === 'error'
+                          ? 'text-red-700'
+                          : 'text-black'
+                    }`}
+                  >
+                    {anthropicTestMessage}
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
         </CardContent>
       </Card>
 
-      {/* Tone */}
+      {/* ── Response Tone ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Response Tone</CardTitle>
@@ -515,21 +806,16 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <select
+          <StyledSelect
             value={tone}
             onChange={(e) => setTone(e.target.value)}
-            className="flex h-10 w-full max-w-sm rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black"
-          >
-            {TONE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={TONE_OPTIONS}
+            className="max-w-sm"
+          />
         </CardContent>
       </Card>
 
-      {/* Response Length */}
+      {/* ── Response Length ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Response Length</CardTitle>
@@ -539,21 +825,16 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <select
+          <StyledSelect
             value={responseLength}
             onChange={(e) => setResponseLength(e.target.value)}
-            className="flex h-10 w-full max-w-sm rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2 text-black"
-          >
-            {RESPONSE_LENGTH_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={RESPONSE_LENGTH_OPTIONS}
+            className="max-w-sm"
+          />
         </CardContent>
       </Card>
 
-      {/* System Prompt */}
+      {/* ── System Prompt ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Additional Persona Instructions</CardTitle>
@@ -574,7 +855,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Save button */}
+      {/* ── Save button ── */}
       <div className="flex items-center gap-4">
         <Button onClick={handleSave} disabled={saving} className="gap-2">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
